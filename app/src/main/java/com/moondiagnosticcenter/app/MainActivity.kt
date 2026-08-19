@@ -43,6 +43,17 @@ class MainActivity : AppCompatActivity() {
     private val darkText = Color.rgb(45, 45, 45)
     private val lightText = Color.rgb(90, 90, 90)
 
+    // Dashboard Card Colors
+    private val totalSerialColor = Color.rgb(224, 247, 250)
+    private val addSerialColor = Color.rgb(227, 242, 253)
+    private val addDoctorColor = Color.rgb(232, 245, 233)
+    private val addCareOfColor = Color.rgb(243, 229, 245)
+
+    private val searchColor = Color.rgb(255, 243, 224)
+    private val doctorsColor = Color.rgb(224, 247, 250)
+    private val careOfColor = Color.rgb(232, 234, 246)
+    private val reportsColor = Color.rgb(251, 233, 231)
+
     // =========================================================
     // ON CREATE
     // =========================================================
@@ -467,7 +478,7 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundColor(
                     backgroundColor
                 )
-            }
+        }
 
         // =====================================================
         // TOP BAR
@@ -493,7 +504,8 @@ class MainActivity : AppCompatActivity() {
                     topBarColor
                 )
 
-                elevation = dp(8).toFloat()
+                elevation =
+                    dp(8).toFloat()
             }
 
         // =====================================================
@@ -674,7 +686,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // TOP FOUR DASHBOARD OPTIONS
+        // TOP ROW
         // =====================================================
 
         val topRow =
@@ -685,15 +697,17 @@ class MainActivity : AppCompatActivity() {
             }
 
         val totalSerial =
-            createDashboardButton(
+            createDashboardCard(
                 "📋",
-                "Total Serial"
+                "Total Serial",
+                totalSerialColor
             )
 
         val addSerial =
-            createDashboardButton(
+            createDashboardCard(
                 "➕",
-                "Add Serial"
+                "Add Serial",
+                addSerialColor
             )
 
         topRow.addView(
@@ -722,15 +736,17 @@ class MainActivity : AppCompatActivity() {
             }
 
         val addDoctor =
-            createDashboardButton(
+            createDashboardCard(
                 "👨‍⚕️",
-                "Add Doctor"
+                "Add Doctor",
+                addDoctorColor
             )
 
         val addCareOf =
-            createDashboardButton(
+            createDashboardCard(
                 "👤",
-                "Add Care Of"
+                "Add Care Of",
+                addCareOfColor
             )
 
         secondRow.addView(
@@ -822,7 +838,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // BOTTOM FOUR OPTIONS
+        // QUICK ACCESS
         // =====================================================
 
         val quickTitle =
@@ -864,15 +880,17 @@ class MainActivity : AppCompatActivity() {
             }
 
         val search =
-            createDashboardButton(
+            createDashboardCard(
                 "🔎",
-                "Search"
+                "Search",
+                searchColor
             )
 
         val doctors =
-            createDashboardButton(
+            createDashboardCard(
                 "👨‍⚕️",
-                "Doctors"
+                "Doctors",
+                doctorsColor
             )
 
         bottomRow1.addView(
@@ -901,15 +919,17 @@ class MainActivity : AppCompatActivity() {
             }
 
         val careOf =
-            createDashboardButton(
+            createDashboardCard(
                 "👤",
-                "Care Of"
+                "Care Of",
+                careOfColor
             )
 
         val reports =
-            createDashboardButton(
+            createDashboardCard(
                 "📊",
-                "Reports"
+                "Reports",
+                reportsColor
             )
 
         bottomRow2.addView(
@@ -944,7 +964,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // ADD MAIN LAYOUT TO DRAWER
+        // DRAWER MAIN CONTENT
         // =====================================================
 
         drawerLayout.addView(
@@ -956,7 +976,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // NAVIGATION DRAWER
+        // NAVIGATION VIEW
         // =====================================================
 
         navigationView =
@@ -996,7 +1016,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // OPEN DRAWER
+        // MENU CLICK
         // =====================================================
 
         menuButton.setOnClickListener {
@@ -1007,7 +1027,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // =====================================================
-        // DASHBOARD ACTIONS
+        // DASHBOARD CLICK ACTIONS
         // =====================================================
 
         totalSerial.setOnClickListener {
@@ -1080,6 +1100,268 @@ class MainActivity : AppCompatActivity() {
                 "Reports",
                 Toast.LENGTH_SHORT
             ).show()
+        }
+    }
+
+    // =========================================================
+    // DASHBOARD CARD
+    // =========================================================
+
+    private fun createDashboardCard(
+        icon: String,
+        label: String,
+        cardColor: Int
+    ): LinearLayout {
+
+        val card =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                gravity =
+                    Gravity.CENTER
+
+                setPadding(
+                    dp(8),
+                    dp(10),
+                    dp(8),
+                    dp(10)
+                )
+
+                background =
+                    roundedCardDrawable(
+                        cardColor,
+                        dp(18)
+                    )
+
+                elevation =
+                    dp(5).toFloat()
+
+                isClickable = true
+                isFocusable = true
+            }
+
+        // =====================================================
+        // LARGE ICON
+        // =====================================================
+
+        val iconView =
+            TextView(this).apply {
+
+                text = icon
+
+                textSize = 42f
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    darkText
+                )
+
+                includeFontPadding = true
+            }
+
+        // =====================================================
+        // LABEL
+        // =====================================================
+
+        val labelView =
+            TextView(this).apply {
+
+                text = label
+
+                textSize = 17f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    darkText
+                )
+
+                setPadding(
+                    dp(4),
+                    dp(5),
+                    dp(4),
+                    0
+                )
+            }
+
+        card.addView(
+            iconView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            )
+        )
+
+        card.addView(
+            labelView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        return card
+    }
+
+    // =========================================================
+    // GRID PARAMETERS
+    // =========================================================
+
+    private fun gridParams():
+            LinearLayout.LayoutParams {
+
+        return LinearLayout.LayoutParams(
+            0,
+            dp(155),
+            1f
+        ).apply {
+
+            setMargins(
+                dp(6),
+                dp(6),
+                dp(6),
+                dp(6)
+            )
+        }
+    }
+
+    // =========================================================
+    // SUMMARY PARAMETERS
+    // =========================================================
+
+    private fun summaryParams():
+            LinearLayout.LayoutParams {
+
+        return LinearLayout.LayoutParams(
+            0,
+            dp(115),
+            1f
+        ).apply {
+
+            setMargins(
+                dp(4),
+                dp(4),
+                dp(4),
+                dp(4)
+            )
+        }
+    }
+
+    // =========================================================
+    // SUMMARY CARD
+    // =========================================================
+
+    private fun createSummaryCard(
+        title: String,
+        value: String
+    ): LinearLayout {
+
+        val card =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                gravity =
+                    Gravity.CENTER
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(14)
+                    )
+
+                elevation =
+                    dp(2).toFloat()
+            }
+
+        val titleText =
+            TextView(this).apply {
+
+                text = title
+
+                textSize = 13f
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    lightText
+                )
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+            }
+
+        val valueText =
+            TextView(this).apply {
+
+                text = value
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    primaryColor
+                )
+
+                setPadding(
+                    0,
+                    dp(3),
+                    0,
+                    0
+                )
+            }
+
+        card.addView(
+            titleText
+        )
+
+        card.addView(
+            valueText
+        )
+
+        return card
+    }
+
+    // =========================================================
+    // ROUNDED CARD
+    // =========================================================
+
+    private fun roundedCardDrawable(
+        color: Int,
+        radius: Int
+    ): GradientDrawable {
+
+        return GradientDrawable().apply {
+
+            setColor(color)
+
+            cornerRadius =
+                radius.toFloat()
+
+            setStroke(
+                dp(1),
+                Color.argb(
+                    35,
+                    0,
+                    0,
+                    0
+                )
+            )
         }
     }
 
@@ -1315,207 +1597,6 @@ class MainActivity : AppCompatActivity() {
 
                 true
             }
-        }
-    }
-
-    // =========================================================
-    // DASHBOARD BUTTON
-    // =========================================================
-
-    private fun createDashboardButton(
-        icon: String,
-        label: String
-    ): Button {
-
-        return Button(this).apply {
-
-            text = "$icon\n$label"
-
-            textSize = 18f
-
-            gravity =
-                Gravity.CENTER
-
-            setAllCaps(false)
-
-            setTextColor(
-                primaryColor
-            )
-
-            typeface =
-                Typeface.DEFAULT_BOLD
-
-            isAllCaps = false
-
-            setPadding(
-                dp(8),
-                dp(10),
-                dp(8),
-                dp(10)
-            )
-
-            minHeight = 0
-            minimumHeight = 0
-
-            background =
-                roundedCardDrawable(
-                    Color.WHITE,
-                    dp(16)
-                )
-
-            elevation =
-                dp(4).toFloat()
-
-            stateListAnimator = null
-        }
-    }
-
-    // =========================================================
-    // DASHBOARD GRID PARAMS
-    // =========================================================
-
-    private fun gridParams():
-            LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
-            0,
-            dp(155),
-            1f
-        ).apply {
-
-            setMargins(
-                dp(6),
-                dp(6),
-                dp(6),
-                dp(6)
-            )
-        }
-    }
-
-    // =========================================================
-    // SUMMARY PARAMS
-    // =========================================================
-
-    private fun summaryParams():
-            LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
-            0,
-            dp(115),
-            1f
-        ).apply {
-
-            setMargins(
-                dp(4),
-                dp(4),
-                dp(4),
-                dp(4)
-            )
-        }
-    }
-
-    // =========================================================
-    // SUMMARY CARD
-    // =========================================================
-
-    private fun createSummaryCard(
-        title: String,
-        value: String
-    ): LinearLayout {
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                gravity =
-                    Gravity.CENTER
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(14)
-                    )
-
-                elevation =
-                    dp(2).toFloat()
-            }
-
-        val titleText =
-            TextView(this).apply {
-
-                text = title
-
-                textSize = 13f
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    lightText
-                )
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-            }
-
-        val valueText =
-            TextView(this).apply {
-
-                text = value
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    primaryColor
-                )
-
-                setPadding(
-                    0,
-                    dp(3),
-                    0,
-                    0
-                )
-            }
-
-        card.addView(
-            titleText
-        )
-
-        card.addView(
-            valueText
-        )
-
-        return card
-    }
-
-    // =========================================================
-    // ROUNDED CARD BACKGROUND
-    // =========================================================
-
-    private fun roundedCardDrawable(
-        color: Int,
-        radius: Int
-    ): GradientDrawable {
-
-        return GradientDrawable().apply {
-
-            setColor(color)
-
-            cornerRadius =
-                radius.toFloat()
-
-            setStroke(
-                dp(1),
-                Color.rgb(230, 234, 240)
-            )
         }
     }
 }
