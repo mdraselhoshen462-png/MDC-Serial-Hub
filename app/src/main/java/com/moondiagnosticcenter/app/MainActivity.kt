@@ -1,6 +1,5 @@
 package com.moondiagnosticcenter.app
 
-import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -20,6 +19,7 @@ import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : AppCompatActivity() {
@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
     private val darkText = Color.rgb(45, 45, 45)
     private val lightText = Color.rgb(90, 90, 90)
 
-    // Dashboard Card Colors
+    // Dashboard colors
     private val totalSerialColor = Color.rgb(224, 247, 250)
     private val addSerialColor = Color.rgb(227, 242, 253)
     private val addDoctorColor = Color.rgb(232, 245, 233)
@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // DP CONVERTER
+    // DP
     // =========================================================
 
     private fun dp(value: Int): Int {
@@ -81,7 +81,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // SYSTEM BAR SETUP
+    // SYSTEM BARS
     // =========================================================
 
     private fun setupSystemBars() {
@@ -303,29 +303,11 @@ class MainActivity : AppCompatActivity() {
                 }
         }
 
-        root.addView(
-            logo,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
+        root.addView(logo)
 
-        root.addView(
-            title,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
+        root.addView(title)
 
-        root.addView(
-            loginTitle,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
+        root.addView(loginTitle)
 
         root.addView(
             email,
@@ -431,9 +413,7 @@ class MainActivity : AppCompatActivity() {
                 currentRole =
                     role.lowercase()
 
-                showDashboard(
-                    currentRole
-                )
+                showDashboard(currentRole)
             }
             .addOnFailureListener { error ->
 
@@ -460,14 +440,8 @@ class MainActivity : AppCompatActivity() {
         drawerLayout =
             DrawerLayout(this).apply {
 
-                setBackgroundColor(
-                    backgroundColor
-                )
+                setBackgroundColor(backgroundColor)
             }
-
-        // =====================================================
-        // MAIN LAYOUT
-        // =====================================================
 
         val mainLayout =
             LinearLayout(this).apply {
@@ -478,7 +452,7 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundColor(
                     backgroundColor
                 )
-        }
+            }
 
         // =====================================================
         // TOP BAR
@@ -508,10 +482,6 @@ class MainActivity : AppCompatActivity() {
                     dp(8).toFloat()
             }
 
-        // =====================================================
-        // MENU BUTTON
-        // =====================================================
-
         val menuButton =
             ImageButton(this).apply {
 
@@ -523,15 +493,10 @@ class MainActivity : AppCompatActivity() {
                     Color.TRANSPARENT
                 )
 
-                setColorFilter(
-                    Color.WHITE
-                )
+                setColorFilter(Color.WHITE)
 
                 contentDescription =
                     "Open Menu"
-
-                isClickable = true
-                isFocusable = true
             }
 
         topBar.addView(
@@ -541,10 +506,6 @@ class MainActivity : AppCompatActivity() {
                 dp(64)
             )
         )
-
-        // =====================================================
-        // TITLE
-        // =====================================================
 
         val title =
             TextView(this).apply {
@@ -557,9 +518,10 @@ class MainActivity : AppCompatActivity() {
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    Color.WHITE
-                )
+                setTextColor(Color.WHITE)
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
 
                 setPadding(
                     dp(10),
@@ -567,9 +529,6 @@ class MainActivity : AppCompatActivity() {
                     0,
                     0
                 )
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
             }
 
         topBar.addView(
@@ -580,10 +539,6 @@ class MainActivity : AppCompatActivity() {
                 1f
             )
         )
-
-        // =====================================================
-        // ROLE
-        // =====================================================
 
         val roleText =
             TextView(this).apply {
@@ -596,19 +551,9 @@ class MainActivity : AppCompatActivity() {
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    Color.WHITE
-                )
+                setTextColor(Color.WHITE)
 
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    dp(8),
-                    0,
-                    dp(5),
-                    0
-                )
+                gravity = Gravity.CENTER
             }
 
         topBar.addView(
@@ -628,16 +573,13 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // SCROLL VIEW
+        // SCROLL
         // =====================================================
 
         val scrollView =
             ScrollView(this).apply {
 
                 isFillViewport = true
-
-                overScrollMode =
-                    View.OVER_SCROLL_IF_CONTENT_SCROLLS
             }
 
         val content =
@@ -661,17 +603,14 @@ class MainActivity : AppCompatActivity() {
         val welcome =
             TextView(this).apply {
 
-                text =
-                    "স্বাগতম"
+                text = "স্বাগতম"
 
                 textSize = 25f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    darkText
-                )
+                setTextColor(darkText)
 
                 setPadding(
                     dp(5),
@@ -681,15 +620,13 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        content.addView(
-            welcome
-        )
+        content.addView(welcome)
 
         // =====================================================
-        // TOP ROW
+        // ROW 1
         // =====================================================
 
-        val topRow =
+        val row1 =
             LinearLayout(this).apply {
 
                 orientation =
@@ -710,25 +647,23 @@ class MainActivity : AppCompatActivity() {
                 addSerialColor
             )
 
-        topRow.addView(
+        row1.addView(
             totalSerial,
             gridParams()
         )
 
-        topRow.addView(
+        row1.addView(
             addSerial,
             gridParams()
         )
 
-        content.addView(
-            topRow
-        )
+        content.addView(row1)
 
         // =====================================================
-        // SECOND ROW
+        // ROW 2
         // =====================================================
 
-        val secondRow =
+        val row2 =
             LinearLayout(this).apply {
 
                 orientation =
@@ -749,38 +684,33 @@ class MainActivity : AppCompatActivity() {
                 addCareOfColor
             )
 
-        secondRow.addView(
+        row2.addView(
             addDoctor,
             gridParams()
         )
 
-        secondRow.addView(
+        row2.addView(
             addCareOf,
             gridParams()
         )
 
-        content.addView(
-            secondRow
-        )
+        content.addView(row2)
 
         // =====================================================
-        // SERIAL SUMMARY
+        // SUMMARY
         // =====================================================
 
         val summaryTitle =
             TextView(this).apply {
 
-                text =
-                    "Serial Summary"
+                text = "Serial Summary"
 
                 textSize = 22f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    darkText
-                )
+                setTextColor(darkText)
 
                 setPadding(
                     dp(5),
@@ -790,9 +720,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        content.addView(
-            summaryTitle
-        )
+        content.addView(summaryTitle)
 
         val summaryRow =
             LinearLayout(this).apply {
@@ -802,40 +730,26 @@ class MainActivity : AppCompatActivity() {
             }
 
         summaryRow.addView(
-            createSummaryCard(
-                "মোট",
-                "0"
-            ),
+            createSummaryCard("মোট", "0"),
             summaryParams()
         )
 
         summaryRow.addView(
-            createSummaryCard(
-                "অপেক্ষমাণ",
-                "0"
-            ),
+            createSummaryCard("অপেক্ষমাণ", "0"),
             summaryParams()
         )
 
         summaryRow.addView(
-            createSummaryCard(
-                "সম্পন্ন",
-                "0"
-            ),
+            createSummaryCard("সম্পন্ন", "0"),
             summaryParams()
         )
 
         summaryRow.addView(
-            createSummaryCard(
-                "বাতিল",
-                "0"
-            ),
+            createSummaryCard("বাতিল", "0"),
             summaryParams()
         )
 
-        content.addView(
-            summaryRow
-        )
+        content.addView(summaryRow)
 
         // =====================================================
         // QUICK ACCESS
@@ -844,17 +758,14 @@ class MainActivity : AppCompatActivity() {
         val quickTitle =
             TextView(this).apply {
 
-                text =
-                    "Quick Access"
+                text = "Quick Access"
 
                 textSize = 22f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    darkText
-                )
+                setTextColor(darkText)
 
                 setPadding(
                     dp(5),
@@ -864,15 +775,9 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        content.addView(
-            quickTitle
-        )
+        content.addView(quickTitle)
 
-        // =====================================================
-        // BOTTOM ROW 1
-        // =====================================================
-
-        val bottomRow1 =
+        val row3 =
             LinearLayout(this).apply {
 
                 orientation =
@@ -893,25 +798,19 @@ class MainActivity : AppCompatActivity() {
                 doctorsColor
             )
 
-        bottomRow1.addView(
+        row3.addView(
             search,
             gridParams()
         )
 
-        bottomRow1.addView(
+        row3.addView(
             doctors,
             gridParams()
         )
 
-        content.addView(
-            bottomRow1
-        )
+        content.addView(row3)
 
-        // =====================================================
-        // BOTTOM ROW 2
-        // =====================================================
-
-        val bottomRow2 =
+        val row4 =
             LinearLayout(this).apply {
 
                 orientation =
@@ -932,27 +831,19 @@ class MainActivity : AppCompatActivity() {
                 reportsColor
             )
 
-        bottomRow2.addView(
+        row4.addView(
             careOf,
             gridParams()
         )
 
-        bottomRow2.addView(
+        row4.addView(
             reports,
             gridParams()
         )
 
-        content.addView(
-            bottomRow2
-        )
+        content.addView(row4)
 
-        // =====================================================
-        // ADD CONTENT
-        // =====================================================
-
-        scrollView.addView(
-            content
-        )
+        scrollView.addView(content)
 
         mainLayout.addView(
             scrollView,
@@ -964,7 +855,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // DRAWER MAIN CONTENT
+        // DRAWER
         // =====================================================
 
         drawerLayout.addView(
@@ -975,16 +866,10 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // =====================================================
-        // NAVIGATION VIEW
-        // =====================================================
-
         navigationView =
             NavigationView(this).apply {
 
-                setBackgroundColor(
-                    Color.WHITE
-                )
+                setBackgroundColor(Color.WHITE)
             }
 
         val drawerWidth =
@@ -1011,12 +896,10 @@ class MainActivity : AppCompatActivity() {
             role
         )
 
-        setContentView(
-            drawerLayout
-        )
+        setContentView(drawerLayout)
 
         // =====================================================
-        // MENU CLICK
+        // MENU
         // =====================================================
 
         menuButton.setOnClickListener {
@@ -1027,7 +910,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // =====================================================
-        // DASHBOARD CLICK ACTIONS
+        // ACTIONS
         // =====================================================
 
         totalSerial.setOnClickListener {
@@ -1048,16 +931,13 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
+        // =====================================================
+        // ADD DOCTOR
+        // =====================================================
+
         addDoctor.setOnClickListener {
 
-            Toast.makeText(
-                this,
-                "Add Doctor",
-                addDoctor.setOnClickListener {
-
-    showAddDoctor()
-}
-            
+            showAddDoctor()
         }
 
         addCareOf.setOnClickListener {
@@ -1107,6 +987,571 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
+    // ADD DOCTOR PAGE
+    // =========================================================
+
+    private fun showAddDoctor() {
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        // =====================================================
+        // TOP BAR
+        // =====================================================
+
+        val topBar =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+
+                setPadding(
+                    dp(8),
+                    getStatusBarHeight() + dp(8),
+                    dp(15),
+                    dp(12)
+                )
+
+                setBackgroundColor(
+                    topBarColor
+                )
+
+                elevation =
+                    dp(8).toFloat()
+            }
+
+        val backButton =
+            ImageButton(this).apply {
+
+                setImageResource(
+                    android.R.drawable.ic_media_previous
+                )
+
+                setBackgroundColor(
+                    Color.TRANSPARENT
+                )
+
+                setColorFilter(
+                    Color.WHITE
+                )
+
+                contentDescription =
+                    "Back"
+            }
+
+        topBar.addView(
+            backButton,
+            LinearLayout.LayoutParams(
+                dp(60),
+                dp(60)
+            )
+        )
+
+        val title =
+            TextView(this).apply {
+
+                text =
+                    "Add Doctor"
+
+                textSize = 22f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    Color.WHITE
+                )
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+
+                setPadding(
+                    dp(10),
+                    0,
+                    0,
+                    0
+                )
+            }
+
+        topBar.addView(
+            title,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+            )
+        )
+
+        root.addView(
+            topBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(88)
+            )
+        )
+
+        // =====================================================
+        // SCROLL
+        // =====================================================
+
+        val scrollView =
+            ScrollView(this).apply {
+
+                isFillViewport = true
+            }
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(20),
+                    dp(20),
+                    dp(30)
+                )
+            }
+
+        // =====================================================
+        // PAGE TITLE
+        // =====================================================
+
+        val pageTitle =
+            TextView(this).apply {
+
+                text =
+                    "নতুন ডাক্তার যোগ করুন"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    darkText
+                )
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(20)
+                )
+            }
+
+        content.addView(pageTitle)
+
+        // =====================================================
+        // DOCTOR NAME
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "ডাক্তারের নাম *"
+        )
+
+        val doctorName =
+            createFormInput(
+                "যেমন: ডাঃ আব্দুল্লাহ আল মুজাহিদ"
+            )
+
+        content.addView(
+            doctorName,
+            formParams()
+        )
+
+        // =====================================================
+        // QUALIFICATION
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "শিক্ষাগত যোগ্যতা"
+        )
+
+        val qualification =
+            createFormInput(
+                "যেমন: MBBS, BCS (Health), MD"
+            )
+
+        content.addView(
+            qualification,
+            formParams()
+        )
+
+        // =====================================================
+        // SPECIALTY
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "বিশেষজ্ঞতা"
+        )
+
+        val specialty =
+            createFormInput(
+                "যেমন: Medicine Specialist"
+            )
+
+        content.addView(
+            specialty,
+            formParams()
+        )
+
+        // =====================================================
+        // VISITING TIME
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "রোগী দেখার সময়"
+        )
+
+        val visitingTime =
+            createFormInput(
+                "যেমন: শুক্রবার সন্ধ্যা ৬টা - রাত ১০টা"
+            )
+
+        content.addView(
+            visitingTime,
+            formParams()
+        )
+
+        // =====================================================
+        // MOBILE
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "মোবাইল নম্বর"
+        )
+
+        val mobile =
+            createFormInput(
+                "যেমন: 01XXXXXXXXX"
+            )
+
+        mobile.inputType =
+            InputType.TYPE_CLASS_PHONE
+
+        content.addView(
+            mobile,
+            formParams()
+        )
+
+        // =====================================================
+        // STATUS
+        // =====================================================
+
+        val status =
+            TextView(this).apply {
+
+                textSize = 15f
+
+                gravity =
+                    Gravity.CENTER
+
+                setTextColor(
+                    primaryColor
+                )
+
+                setPadding(
+                    0,
+                    dp(10),
+                    0,
+                    dp(10)
+                )
+            }
+
+        content.addView(status)
+
+        // =====================================================
+        // SAVE BUTTON
+        // =====================================================
+
+        val saveButton =
+            Button(this).apply {
+
+                text =
+                    "💾  SAVE DOCTOR"
+
+                textSize = 18f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    Color.WHITE
+                )
+
+                setAllCaps(false)
+
+                background =
+                    roundedCardDrawable(
+                        topBarColor,
+                        dp(15)
+                    )
+
+                elevation =
+                    dp(4).toFloat()
+            }
+
+        content.addView(
+            saveButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+
+                setMargins(
+                    0,
+                    dp(15),
+                    0,
+                    dp(10)
+                )
+            }
+        )
+
+        // =====================================================
+        // SAVE
+        // =====================================================
+
+        saveButton.setOnClickListener {
+
+            val name =
+                doctorName.text.toString().trim()
+
+            val degree =
+                qualification.text.toString().trim()
+
+            val specialist =
+                specialty.text.toString().trim()
+
+            val time =
+                visitingTime.text.toString().trim()
+
+            val phone =
+                mobile.text.toString().trim()
+
+            // -----------------------------------------------
+            // VALIDATION
+            // -----------------------------------------------
+
+            if (name.isEmpty()) {
+
+                doctorName.error =
+                    "ডাক্তারের নাম দিন"
+
+                doctorName.requestFocus()
+
+                return@setOnClickListener
+            }
+
+            saveButton.isEnabled = false
+
+            status.text =
+                "Doctor তথ্য সংরক্ষণ হচ্ছে..."
+
+            // -----------------------------------------------
+            // FIRESTORE DATA
+            // -----------------------------------------------
+
+            val doctorData =
+                hashMapOf(
+                    "name" to name,
+                    "qualification" to degree,
+                    "specialty" to specialist,
+                    "visitingTime" to time,
+                    "mobile" to phone,
+                    "active" to true,
+                    "createdBy" to (
+                        auth.currentUser?.uid ?: ""
+                    ),
+                    "createdAt" to
+                            FieldValue.serverTimestamp()
+                )
+
+            // -----------------------------------------------
+            // SAVE
+            // -----------------------------------------------
+
+            db.collection("doctors")
+                .add(doctorData)
+                .addOnSuccessListener {
+
+                    saveButton.isEnabled = true
+
+                    status.text =
+                        "Doctor সফলভাবে যোগ হয়েছে ✓"
+
+                    Toast.makeText(
+                        this,
+                        "Doctor সফলভাবে যোগ হয়েছে",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    doctorName.text.clear()
+                    qualification.text.clear()
+                    specialty.text.clear()
+                    visitingTime.text.clear()
+                    mobile.text.clear()
+                }
+                .addOnFailureListener { error ->
+
+                    saveButton.isEnabled = true
+
+                    status.text = ""
+
+                    Toast.makeText(
+                        this,
+                        "Doctor যোগ করা যায়নি: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+
+        scrollView.addView(content)
+
+        root.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+
+        // =====================================================
+        // BACK
+        // =====================================================
+
+        backButton.setOnClickListener {
+
+            showDashboard(currentRole)
+        }
+    }
+
+    // =========================================================
+    // FORM LABEL
+    // =========================================================
+
+    private fun addFormLabel(
+        parent: LinearLayout,
+        text: String
+    ) {
+
+        val label =
+            TextView(this).apply {
+
+                this.text = text
+
+                textSize = 16f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    darkText
+                )
+
+                setPadding(
+                    dp(4),
+                    dp(4),
+                    dp(4),
+                    dp(6)
+                )
+            }
+
+        parent.addView(
+            label,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+    }
+
+    // =========================================================
+    // FORM INPUT
+    // =========================================================
+
+    private fun createFormInput(
+        hintText: String
+    ): EditText {
+
+        return EditText(this).apply {
+
+            hint = hintText
+
+            textSize = 17f
+
+            setTextColor(
+                darkText
+            )
+
+            setHintTextColor(
+                Color.rgb(140, 140, 140)
+            )
+
+            setSingleLine(true)
+
+            gravity =
+                Gravity.CENTER_VERTICAL
+
+            setPadding(
+                dp(16),
+                dp(10),
+                dp(16),
+                dp(10)
+            )
+
+            background =
+                roundedCardDrawable(
+                    Color.WHITE,
+                    dp(12)
+                )
+        }
+    }
+
+    // =========================================================
+    // FORM PARAMS
+    // =========================================================
+
+    private fun formParams():
+            LinearLayout.LayoutParams {
+
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(58)
+        ).apply {
+
+            setMargins(
+                0,
+                0,
+                0,
+                dp(14)
+            )
+        }
+    }
+
+    // =========================================================
     // DASHBOARD CARD
     // =========================================================
 
@@ -1145,10 +1590,6 @@ class MainActivity : AppCompatActivity() {
                 isFocusable = true
             }
 
-        // =====================================================
-        // LARGE ICON
-        // =====================================================
-
         val iconView =
             TextView(this).apply {
 
@@ -1159,16 +1600,8 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER
 
-                setTextColor(
-                    darkText
-                )
-
                 includeFontPadding = true
             }
-
-        // =====================================================
-        // LABEL
-        // =====================================================
 
         val labelView =
             TextView(this).apply {
@@ -1215,7 +1648,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // GRID PARAMETERS
+    // GRID PARAMS
     // =========================================================
 
     private fun gridParams():
@@ -1237,7 +1670,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // SUMMARY PARAMETERS
+    // SUMMARY PARAMS
     // =========================================================
 
     private fun summaryParams():
@@ -1320,28 +1753,16 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(
                     primaryColor
                 )
-
-                setPadding(
-                    0,
-                    dp(3),
-                    0,
-                    0
-                )
             }
 
-        card.addView(
-            titleText
-        )
-
-        card.addView(
-            valueText
-        )
+        card.addView(titleText)
+        card.addView(valueText)
 
         return card
     }
 
     // =========================================================
-    // ROUNDED CARD
+    // ROUNDED BACKGROUND
     // =========================================================
 
     private fun roundedCardDrawable(
@@ -1404,8 +1825,7 @@ class MainActivity : AppCompatActivity() {
         val logo =
             TextView(this).apply {
 
-                text =
-                    "MDC"
+                text = "MDC"
 
                 textSize = 34f
 
@@ -1457,12 +1877,10 @@ class MainActivity : AppCompatActivity() {
         header.addView(centerName)
         header.addView(userRole)
 
-        navigationView.addHeaderView(
-            header
-        )
+        navigationView.addHeaderView(header)
 
         // =====================================================
-        // ADMIN CONTROL PANEL
+        // ADMIN
         // =====================================================
 
         if (role.lowercase() == "admin") {
