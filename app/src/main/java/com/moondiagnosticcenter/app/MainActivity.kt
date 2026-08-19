@@ -1053,8 +1053,11 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(
                 this,
                 "Add Doctor",
-                Toast.LENGTH_SHORT
-            ).show()
+                addDoctor.setOnClickListener {
+
+    showAddDoctor()
+}
+            
         }
 
         addCareOf.setOnClickListener {
