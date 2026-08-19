@@ -3,10 +3,11 @@ package com.moondiagnosticcenter.app
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.view.Window
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
@@ -40,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private val backgroundColor = Color.rgb(245, 247, 250)
     private val whiteColor = Color.WHITE
     private val darkText = Color.rgb(45, 45, 45)
+    private val lightText = Color.rgb(90, 90, 90)
 
     // =========================================================
     // ON CREATE
@@ -60,19 +62,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
+    // DP CONVERTER
+    // =========================================================
+
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    // =========================================================
     // SYSTEM BAR SETUP
     // =========================================================
 
     private fun setupSystemBars() {
 
-        // Edge-to-edge বন্ধ রাখা
         WindowCompat.setDecorFitsSystemWindows(
             window,
             true
         )
 
         window.statusBarColor = topBarColor
-
         window.navigationBarColor = backgroundColor
 
         window.decorView.systemUiVisibility = 0
@@ -112,10 +120,10 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
 
             setPadding(
-                45,
-                40,
-                45,
-                40
+                dp(30),
+                dp(30),
+                dp(30),
+                dp(30)
             )
 
             setBackgroundColor(whiteColor)
@@ -125,7 +133,7 @@ class MainActivity : AppCompatActivity() {
 
             text = "MDC"
 
-            textSize = 44f
+            textSize = 46f
 
             typeface = Typeface.DEFAULT_BOLD
 
@@ -138,7 +146,7 @@ class MainActivity : AppCompatActivity() {
 
             text = "মুন ডায়াগনস্টিক সেন্টার"
 
-            textSize = 24f
+            textSize = 25f
 
             typeface = Typeface.DEFAULT_BOLD
 
@@ -146,9 +154,9 @@ class MainActivity : AppCompatActivity() {
 
             setPadding(
                 0,
-                10,
+                dp(10),
                 0,
-                35
+                dp(30)
             )
 
             setTextColor(darkText)
@@ -158,7 +166,7 @@ class MainActivity : AppCompatActivity() {
 
             text = "Login"
 
-            textSize = 25f
+            textSize = 26f
 
             typeface = Typeface.DEFAULT_BOLD
 
@@ -166,9 +174,9 @@ class MainActivity : AppCompatActivity() {
 
             setPadding(
                 0,
-                10,
+                dp(10),
                 0,
-                25
+                dp(22)
             )
         }
 
@@ -179,6 +187,13 @@ class MainActivity : AppCompatActivity() {
             textSize = 18f
 
             setSingleLine(true)
+
+            setPadding(
+                dp(15),
+                dp(12),
+                dp(15),
+                dp(12)
+            )
         }
 
         val password = EditText(this).apply {
@@ -190,8 +205,15 @@ class MainActivity : AppCompatActivity() {
             setSingleLine(true)
 
             inputType =
-                android.text.InputType.TYPE_CLASS_TEXT or
-                        android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                InputType.TYPE_CLASS_TEXT or
+                        InputType.TYPE_TEXT_VARIATION_PASSWORD
+
+            setPadding(
+                dp(15),
+                dp(12),
+                dp(15),
+                dp(12)
+            )
         }
 
         val loginButton = Button(this).apply {
@@ -202,9 +224,9 @@ class MainActivity : AppCompatActivity() {
 
             setPadding(
                 0,
-                15,
+                dp(12),
                 0,
-                15
+                dp(12)
             )
         }
 
@@ -216,15 +238,11 @@ class MainActivity : AppCompatActivity() {
 
             setPadding(
                 0,
-                15,
+                dp(15),
                 0,
                 0
             )
         }
-
-        // -----------------------------------------------------
-        // LOGIN BUTTON
-        // -----------------------------------------------------
 
         loginButton.setOnClickListener {
 
@@ -274,17 +292,67 @@ class MainActivity : AppCompatActivity() {
                 }
         }
 
-        root.addView(logo)
+        root.addView(
+            logo,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
-        root.addView(title)
+        root.addView(
+            title,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
-        root.addView(loginTitle)
+        root.addView(
+            loginTitle,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
-        root.addView(email)
+        root.addView(
+            email,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    dp(5),
+                    0,
+                    dp(10)
+                )
+            }
+        )
 
-        root.addView(password)
+        root.addView(
+            password,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(15)
+                )
+            }
+        )
 
-        root.addView(loginButton)
+        root.addView(
+            loginButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(58)
+            )
+        )
 
         root.addView(status)
 
@@ -387,7 +455,7 @@ class MainActivity : AppCompatActivity() {
             }
 
         // =====================================================
-        // MAIN CONTENT
+        // MAIN LAYOUT
         // =====================================================
 
         val mainLayout =
@@ -414,24 +482,23 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER_VERTICAL
 
-                // Status bar-এর জায়গা + নিচের spacing
                 setPadding(
-                    8,
-                    getStatusBarHeight() + 8,
-                    15,
-                    12
+                    dp(8),
+                    getStatusBarHeight() + dp(8),
+                    dp(15),
+                    dp(12)
                 )
 
                 setBackgroundColor(
                     topBarColor
                 )
 
-                elevation = 8f
+                elevation = dp(8).toFloat()
             }
 
-        // -----------------------------------------------------
+        // =====================================================
         // MENU BUTTON
-        // -----------------------------------------------------
+        // =====================================================
 
         val menuButton =
             ImageButton(this).apply {
@@ -452,21 +519,20 @@ class MainActivity : AppCompatActivity() {
                     "Open Menu"
 
                 isClickable = true
-
                 isFocusable = true
             }
 
         topBar.addView(
             menuButton,
             LinearLayout.LayoutParams(
-                65,
-                65
+                dp(64),
+                dp(64)
             )
         )
 
-        // -----------------------------------------------------
+        // =====================================================
         // TITLE
-        // -----------------------------------------------------
+        // =====================================================
 
         val title =
             TextView(this).apply {
@@ -474,7 +540,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "Moon Diagnostic Center"
 
-                textSize = 20f
+                textSize = 22f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -484,7 +550,7 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 setPadding(
-                    12,
+                    dp(10),
                     0,
                     0,
                     0
@@ -503,9 +569,9 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // -----------------------------------------------------
+        // =====================================================
         // ROLE
-        // -----------------------------------------------------
+        // =====================================================
 
         val roleText =
             TextView(this).apply {
@@ -513,7 +579,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     role.uppercase()
 
-                textSize = 13f
+                textSize = 14f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -524,6 +590,13 @@ class MainActivity : AppCompatActivity() {
 
                 gravity =
                     Gravity.CENTER
+
+                setPadding(
+                    dp(8),
+                    0,
+                    dp(5),
+                    0
+                )
             }
 
         topBar.addView(
@@ -535,15 +608,25 @@ class MainActivity : AppCompatActivity() {
         )
 
         mainLayout.addView(
-            topBar
+            topBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(88)
+            )
         )
 
         // =====================================================
-        // SCROLL CONTENT
+        // SCROLL VIEW
         // =====================================================
 
         val scrollView =
-            ScrollView(this)
+            ScrollView(this).apply {
+
+                isFillViewport = true
+
+                overScrollMode =
+                    View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            }
 
         val content =
             LinearLayout(this).apply {
@@ -552,10 +635,10 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    18,
-                    18,
-                    18,
-                    30
+                    dp(16),
+                    dp(14),
+                    dp(16),
+                    dp(30)
                 )
             }
 
@@ -569,7 +652,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "স্বাগতম"
 
-                textSize = 23f
+                textSize = 25f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -579,10 +662,10 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 setPadding(
-                    5,
-                    5,
-                    5,
-                    20
+                    dp(5),
+                    dp(4),
+                    dp(5),
+                    dp(14)
                 )
             }
 
@@ -591,7 +674,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // TOP FOUR OPTIONS
+        // TOP FOUR DASHBOARD OPTIONS
         // =====================================================
 
         val topRow =
@@ -603,12 +686,14 @@ class MainActivity : AppCompatActivity() {
 
         val totalSerial =
             createDashboardButton(
-                "📋\nTotal Serial"
+                "📋",
+                "Total Serial"
             )
 
         val addSerial =
             createDashboardButton(
-                "➕\nAdd Serial"
+                "➕",
+                "Add Serial"
             )
 
         topRow.addView(
@@ -625,9 +710,9 @@ class MainActivity : AppCompatActivity() {
             topRow
         )
 
-        // -----------------------------------------------------
+        // =====================================================
         // SECOND ROW
-        // -----------------------------------------------------
+        // =====================================================
 
         val secondRow =
             LinearLayout(this).apply {
@@ -638,12 +723,14 @@ class MainActivity : AppCompatActivity() {
 
         val addDoctor =
             createDashboardButton(
-                "👨‍⚕️\nAdd Doctor"
+                "👨‍⚕️",
+                "Add Doctor"
             )
 
         val addCareOf =
             createDashboardButton(
-                "👤\nAdd Care Of"
+                "👤",
+                "Add Care Of"
             )
 
         secondRow.addView(
@@ -670,16 +757,20 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "Serial Summary"
 
-                textSize = 21f
+                textSize = 22f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
+                setTextColor(
+                    darkText
+                )
+
                 setPadding(
-                    5,
-                    30,
-                    5,
-                    12
+                    dp(5),
+                    dp(24),
+                    dp(5),
+                    dp(10)
                 )
             }
 
@@ -740,16 +831,20 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "Quick Access"
 
-                textSize = 21f
+                textSize = 22f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
+                setTextColor(
+                    darkText
+                )
+
                 setPadding(
-                    5,
-                    30,
-                    5,
-                    12
+                    dp(5),
+                    dp(24),
+                    dp(5),
+                    dp(10)
                 )
             }
 
@@ -757,9 +852,9 @@ class MainActivity : AppCompatActivity() {
             quickTitle
         )
 
-        // -----------------------------------------------------
+        // =====================================================
         // BOTTOM ROW 1
-        // -----------------------------------------------------
+        // =====================================================
 
         val bottomRow1 =
             LinearLayout(this).apply {
@@ -770,12 +865,14 @@ class MainActivity : AppCompatActivity() {
 
         val search =
             createDashboardButton(
-                "🔎\nSearch"
+                "🔎",
+                "Search"
             )
 
         val doctors =
             createDashboardButton(
-                "👨‍⚕️\nDoctors"
+                "👨‍⚕️",
+                "Doctors"
             )
 
         bottomRow1.addView(
@@ -792,9 +889,9 @@ class MainActivity : AppCompatActivity() {
             bottomRow1
         )
 
-        // -----------------------------------------------------
+        // =====================================================
         // BOTTOM ROW 2
-        // -----------------------------------------------------
+        // =====================================================
 
         val bottomRow2 =
             LinearLayout(this).apply {
@@ -805,12 +902,14 @@ class MainActivity : AppCompatActivity() {
 
         val careOf =
             createDashboardButton(
-                "👤\nCare Of"
+                "👤",
+                "Care Of"
             )
 
         val reports =
             createDashboardButton(
-                "📊\nReports"
+                "📊",
+                "Reports"
             )
 
         bottomRow2.addView(
@@ -827,6 +926,10 @@ class MainActivity : AppCompatActivity() {
             bottomRow2
         )
 
+        // =====================================================
+        // ADD CONTENT
+        // =====================================================
+
         scrollView.addView(
             content
         )
@@ -841,7 +944,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         // =====================================================
-        // ADD MAIN CONTENT TO DRAWER
+        // ADD MAIN LAYOUT TO DRAWER
         // =====================================================
 
         drawerLayout.addView(
@@ -866,9 +969,8 @@ class MainActivity : AppCompatActivity() {
 
         val drawerWidth =
             (
-                resources.displayMetrics.widthPixels
-                    * 0.82
-                ).toInt()
+                resources.displayMetrics.widthPixels * 0.82
+            ).toInt()
 
         val drawerParams =
             DrawerLayout.LayoutParams(
@@ -905,7 +1007,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // =====================================================
-        // DASHBOARD BUTTON ACTIONS
+        // DASHBOARD ACTIONS
         // =====================================================
 
         totalSerial.setOnClickListener {
@@ -982,7 +1084,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // NAVIGATION DRAWER MENU
+    // NAVIGATION DRAWER
     // =========================================================
 
     private fun createNavigationMenu(
@@ -1003,10 +1105,10 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    30,
-                    40,
-                    20,
-                    30
+                    dp(30),
+                    dp(40),
+                    dp(20),
+                    dp(30)
                 )
 
                 setBackgroundColor(
@@ -1020,7 +1122,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "MDC"
 
-                textSize = 32f
+                textSize = 34f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -1036,7 +1138,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "মুন ডায়াগনস্টিক সেন্টার"
 
-                textSize = 19f
+                textSize = 20f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -1047,9 +1149,9 @@ class MainActivity : AppCompatActivity() {
 
                 setPadding(
                     0,
-                    8,
+                    dp(8),
                     0,
-                    8
+                    dp(8)
                 )
             }
 
@@ -1059,7 +1161,7 @@ class MainActivity : AppCompatActivity() {
                 text =
                     "Role: ${role.uppercase()}"
 
-                textSize = 15f
+                textSize = 16f
 
                 setTextColor(
                     Color.WHITE
@@ -1067,9 +1169,7 @@ class MainActivity : AppCompatActivity() {
             }
 
         header.addView(logo)
-
         header.addView(centerName)
-
         header.addView(userRole)
 
         navigationView.addHeaderView(
@@ -1223,16 +1323,18 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun createDashboardButton(
-        text: String
+        icon: String,
+        label: String
     ): Button {
 
         return Button(this).apply {
 
-            this.text = text
+            text = "$icon\n$label"
 
-            textSize = 17f
+            textSize = 18f
 
-            gravity = Gravity.CENTER
+            gravity =
+                Gravity.CENTER
 
             setAllCaps(false)
 
@@ -1240,16 +1342,36 @@ class MainActivity : AppCompatActivity() {
                 primaryColor
             )
 
-            setBackgroundColor(
-                Color.WHITE
-            )
+            typeface =
+                Typeface.DEFAULT_BOLD
 
             isAllCaps = false
+
+            setPadding(
+                dp(8),
+                dp(10),
+                dp(8),
+                dp(10)
+            )
+
+            minHeight = 0
+            minimumHeight = 0
+
+            background =
+                roundedCardDrawable(
+                    Color.WHITE,
+                    dp(16)
+                )
+
+            elevation =
+                dp(4).toFloat()
+
+            stateListAnimator = null
         }
     }
 
     // =========================================================
-    // GRID PARAMS
+    // DASHBOARD GRID PARAMS
     // =========================================================
 
     private fun gridParams():
@@ -1257,15 +1379,15 @@ class MainActivity : AppCompatActivity() {
 
         return LinearLayout.LayoutParams(
             0,
-            145,
+            dp(155),
             1f
         ).apply {
 
             setMargins(
-                6,
-                6,
-                6,
-                6
+                dp(6),
+                dp(6),
+                dp(6),
+                dp(6)
             )
         }
     }
@@ -1279,15 +1401,15 @@ class MainActivity : AppCompatActivity() {
 
         return LinearLayout.LayoutParams(
             0,
-            105,
+            dp(115),
             1f
         ).apply {
 
             setMargins(
-                4,
-                4,
-                4,
-                4
+                dp(4),
+                dp(4),
+                dp(4),
+                dp(4)
             )
         }
     }
@@ -1310,9 +1432,14 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER
 
-                setBackgroundColor(
-                    Color.WHITE
-                )
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(14)
+                    )
+
+                elevation =
+                    dp(2).toFloat()
             }
 
         val titleText =
@@ -1326,8 +1453,11 @@ class MainActivity : AppCompatActivity() {
                     Gravity.CENTER
 
                 setTextColor(
-                    Color.DKGRAY
+                    lightText
                 )
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
             }
 
         val valueText =
@@ -1335,7 +1465,7 @@ class MainActivity : AppCompatActivity() {
 
                 text = value
 
-                textSize = 24f
+                textSize = 25f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -1345,6 +1475,13 @@ class MainActivity : AppCompatActivity() {
 
                 setTextColor(
                     primaryColor
+                )
+
+                setPadding(
+                    0,
+                    dp(3),
+                    0,
+                    0
                 )
             }
 
@@ -1357,5 +1494,28 @@ class MainActivity : AppCompatActivity() {
         )
 
         return card
+    }
+
+    // =========================================================
+    // ROUNDED CARD BACKGROUND
+    // =========================================================
+
+    private fun roundedCardDrawable(
+        color: Int,
+        radius: Int
+    ): GradientDrawable {
+
+        return GradientDrawable().apply {
+
+            setColor(color)
+
+            cornerRadius =
+                radius.toFloat()
+
+            setStroke(
+                dp(1),
+                Color.rgb(230, 234, 240)
+            )
+        }
     }
 }
