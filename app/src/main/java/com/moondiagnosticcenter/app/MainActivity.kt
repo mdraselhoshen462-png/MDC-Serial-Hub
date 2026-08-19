@@ -10,15 +10,16 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -32,6 +33,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navigationView: NavigationView
 
     private var currentRole: String = ""
+
+    // =========================================================
+    // BACK NAVIGATION
+    // =========================================================
+
+    private var currentPage: String = "login"
 
     // =========================================================
     // COLORS
@@ -65,11 +72,85 @@ class MainActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
+        setupBackButton()
+
         if (auth.currentUser != null) {
             checkUserAccess()
         } else {
             showLogin()
         }
+    }
+
+    // =========================================================
+    // BACK BUTTON / GESTURE
+    // =========================================================
+
+    private fun setupBackButton() {
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+
+                override fun handleOnBackPressed() {
+
+                    // Drawer খোলা থাকলে আগে Drawer বন্ধ হবে
+                    if (
+                        ::drawerLayout.isInitialized &&
+                        drawerLayout.isDrawerOpen(Gravity.START)
+                    ) {
+                        drawerLayout.closeDrawer(Gravity.START)
+                        return
+                    }
+
+                    when (currentPage) {
+
+                        "doctor_serials" -> {
+                            showDoctorList()
+                        }
+
+                        "doctor_list" -> {
+                            showDashboard(currentRole)
+                        }
+
+                        "add_doctor" -> {
+                            showDashboard(currentRole)
+                        }
+
+                        "careof_serials" -> {
+                            showCareOfList()
+                        }
+
+                        "careof_list" -> {
+                            showDashboard(currentRole)
+                        }
+
+                        "add_careof" -> {
+                            showDashboard(currentRole)
+                        }
+
+                        "total_serial" -> {
+                            showDashboard(currentRole)
+                        }
+
+                        "dashboard" -> {
+                            // Dashboard থেকে Back দিলে অ্যাপ বন্ধ হবে
+                            isEnabled = false
+                            onBackPressedDispatcher.onBackPressed()
+                        }
+
+                        "login" -> {
+                            // Login page থেকে Back দিলে অ্যাপ বন্ধ হবে
+                            isEnabled = false
+                            onBackPressedDispatcher.onBackPressed()
+                        }
+
+                        else -> {
+                            showDashboard(currentRole)
+                        }
+                    }
+                }
+            }
+        )
     }
 
     // =========================================================
@@ -121,6 +202,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showLogin() {
+
+        currentPage = "login"
 
         setupSystemBars()
 
@@ -304,9 +387,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(logo)
-
         root.addView(title)
-
         root.addView(loginTitle)
 
         root.addView(
@@ -433,6 +514,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showDashboard(role: String) {
+
+        currentPage = "dashboard"
 
         setupSystemBars()
 
@@ -896,16 +979,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         addSerial.setOnClickListener {
+
             Toast.makeText(
                 this,
                 "Add Serial",
                 Toast.LENGTH_SHORT
             ).show()
         }
-
-        // -----------------------------------------------------
-        // ADMIN ONLY ADD DOCTOR
-        // -----------------------------------------------------
 
         addDoctor.setOnClickListener {
 
@@ -962,6 +1042,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAddDoctor() {
 
+        currentPage = "add_doctor"
+
         if (currentRole != "admin") {
 
             Toast.makeText(
@@ -986,14 +1068,13 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        val topBar =
+        root.addView(
             createInnerTopBar(
                 "Add Doctor"
             ) {
                 showDashboard(currentRole)
             }
-
-        root.addView(topBar)
+        )
 
         val scroll =
             ScrollView(this)
@@ -1224,6 +1305,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDoctorList() {
 
+        currentPage = "doctor_list"
+
         setupSystemBars()
 
         val root =
@@ -1311,31 +1394,47 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // =====================================================
+        // IMPORTANT FIX:
+        // No whereEqualTo + orderBy combination.
+        // This avoids Firestore composite-index problem.
+        // =====================================================
+
         db.collection("doctors")
-            .whereEqualTo("active", true)
-            .orderBy(
-                "name",
-                Query.Direction.ASCENDING
-            )
             .get()
             .addOnSuccessListener { result ->
 
                 progress.visibility =
                     View.GONE
 
-                if (result.isEmpty) {
+                val doctors =
+                    result.documents
+                        .filter { document ->
 
-                    val empty =
+                            val active =
+                                document.getBoolean("active")
+
+                            active == null || active
+                        }
+                        .sortedBy { document ->
+
+                            document.getString("name")
+                                ?.lowercase(Locale.getDefault())
+                                ?: ""
+                        }
+
+                if (doctors.isEmpty()) {
+
+                    content.addView(
                         createEmptyText(
                             "কোনো Doctor পাওয়া যায়নি"
                         )
-
-                    content.addView(empty)
+                    )
 
                     return@addOnSuccessListener
                 }
 
-                for (document in result.documents) {
+                for (document in doctors) {
 
                     val doctorName =
                         document.getString("name")
@@ -1419,15 +1518,9 @@ class MainActivity : AppCompatActivity() {
                     date
                 )
             },
-            calendar.get(
-                Calendar.YEAR
-            ),
-            calendar.get(
-                Calendar.MONTH
-            ),
-            calendar.get(
-                Calendar.DAY_OF_MONTH
-            )
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
         ).apply {
 
             setTitle(
@@ -1452,7 +1545,8 @@ class MainActivity : AppCompatActivity() {
             title = "Doctor: $doctorName",
             filterField = "doctorId",
             filterValue = doctorId,
-            date = date
+            date = date,
+            fromDoctor = true
         )
     }
 
@@ -1461,6 +1555,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showCareOfList() {
+
+        currentPage = "careof_list"
 
         setupSystemBars()
 
@@ -1549,19 +1645,35 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // =====================================================
+        // IMPORTANT FIX:
+        // No whereEqualTo + orderBy combination.
+        // =====================================================
+
         db.collection("careOf")
-            .whereEqualTo("active", true)
-            .orderBy(
-                "name",
-                Query.Direction.ASCENDING
-            )
             .get()
             .addOnSuccessListener { result ->
 
                 progress.visibility =
                     View.GONE
 
-                if (result.isEmpty) {
+                val careOfList =
+                    result.documents
+                        .filter { document ->
+
+                            val active =
+                                document.getBoolean("active")
+
+                            active == null || active
+                        }
+                        .sortedBy { document ->
+
+                            document.getString("name")
+                                ?.lowercase(Locale.getDefault())
+                                ?: ""
+                        }
+
+                if (careOfList.isEmpty()) {
 
                     content.addView(
                         createEmptyText(
@@ -1572,7 +1684,7 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                for (document in result.documents) {
+                for (document in careOfList) {
 
                     val name =
                         document.getString("name")
@@ -1651,15 +1763,9 @@ class MainActivity : AppCompatActivity() {
                     date
                 )
             },
-            calendar.get(
-                Calendar.YEAR
-            ),
-            calendar.get(
-                Calendar.MONTH
-            ),
-            calendar.get(
-                Calendar.DAY_OF_MONTH
-            )
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
         ).apply {
 
             setTitle(
@@ -1684,7 +1790,8 @@ class MainActivity : AppCompatActivity() {
             title = "Care Of: $careOfName",
             filterField = "careOfId",
             filterValue = careOfId,
-            date = date
+            date = date,
+            fromDoctor = false
         )
     }
 
@@ -1696,8 +1803,15 @@ class MainActivity : AppCompatActivity() {
         title: String,
         filterField: String,
         filterValue: String,
-        date: String
+        date: String,
+        fromDoctor: Boolean
     ) {
+
+        if (fromDoctor) {
+            currentPage = "doctor_serials"
+        } else {
+            currentPage = "careof_serials"
+        }
 
         setupSystemBars()
 
@@ -1717,7 +1831,7 @@ class MainActivity : AppCompatActivity() {
                 "Serial List"
             ) {
 
-                if (filterField == "doctorId") {
+                if (fromDoctor) {
                     showDoctorList()
                 } else {
                     showCareOfList()
@@ -1813,6 +1927,12 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // =====================================================
+        // IMPORTANT FIX:
+        // No orderBy here.
+        // Sort locally after Firestore returns documents.
+        // =====================================================
+
         db.collection("serials")
             .whereEqualTo(
                 filterField,
@@ -1822,17 +1942,24 @@ class MainActivity : AppCompatActivity() {
                 "createdDate",
                 date
             )
-            .orderBy(
-                "number",
-                Query.Direction.ASCENDING
-            )
             .get()
             .addOnSuccessListener { result ->
 
                 progress.visibility =
                     View.GONE
 
-                if (result.isEmpty) {
+                val serials =
+                    result.documents.sortedBy { document ->
+
+                        document.getLong("number")
+                            ?: (
+                                document.getString("number")
+                                    ?.toLongOrNull()
+                                    ?: Long.MAX_VALUE
+                                )
+                    }
+
+                if (serials.isEmpty()) {
 
                     content.addView(
                         createEmptyText(
@@ -1843,7 +1970,7 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                for (document in result.documents) {
+                for (document in serials) {
 
                     content.addView(
                         createSerialCard(
@@ -1870,7 +1997,7 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun createSerialCard(
-        document: com.google.firebase.firestore.DocumentSnapshot
+        document: DocumentSnapshot
     ): LinearLayout {
 
         val card =
@@ -1998,7 +2125,7 @@ class MainActivity : AppCompatActivity() {
             }
 
         // =====================================================
-        // CREATOR EDIT/DELETE
+        // CREATOR EDIT / DELETE
         // =====================================================
 
         val currentUid =
@@ -2027,9 +2154,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            buttonRow.addView(
-                edit
-            )
+            buttonRow.addView(edit)
 
             val delete =
                 createSmallButton(
@@ -2043,9 +2168,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            buttonRow.addView(
-                delete
-            )
+            buttonRow.addView(delete)
         }
 
         // =====================================================
@@ -2077,7 +2200,7 @@ class MainActivity : AppCompatActivity() {
 
         card.addView(buttonRow)
 
-        val params =
+        card.layoutParams =
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -2091,8 +2214,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        card.layoutParams = params
-
         return card
     }
 
@@ -2101,7 +2222,7 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showEditSerialDialog(
-        document: com.google.firebase.firestore.DocumentSnapshot
+        document: DocumentSnapshot
     ) {
 
         val patientInput =
@@ -2302,6 +2423,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTotalSerial() {
 
+        currentPage = "total_serial"
+
         setupSystemBars()
 
         val root =
@@ -2382,18 +2505,26 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // Local sorting instead of Firestore orderBy
         db.collection("serials")
-            .orderBy(
-                "number",
-                Query.Direction.ASCENDING
-            )
             .get()
             .addOnSuccessListener { result ->
 
                 progress.visibility =
                     View.GONE
 
-                if (result.isEmpty) {
+                val serials =
+                    result.documents.sortedBy { document ->
+
+                        document.getLong("number")
+                            ?: (
+                                document.getString("number")
+                                    ?.toLongOrNull()
+                                    ?: Long.MAX_VALUE
+                                )
+                    }
+
+                if (serials.isEmpty()) {
 
                     content.addView(
                         createEmptyText(
@@ -2404,7 +2535,7 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                for (document in result.documents) {
+                for (document in serials) {
 
                     content.addView(
                         createSerialCard(
@@ -2431,6 +2562,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showAddCareOf() {
+
+        currentPage = "add_careof"
 
         if (currentRole != "admin") {
 
@@ -2672,6 +2805,9 @@ class MainActivity : AppCompatActivity() {
                     Color.WHITE
                 )
 
+                contentDescription =
+                    "Back"
+
                 setOnClickListener {
                     backAction()
                 }
@@ -2720,6 +2856,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         return bar.apply {
+
             layoutParams =
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2759,6 +2896,9 @@ class MainActivity : AppCompatActivity() {
 
                 elevation =
                     dp(3).toFloat()
+
+                isClickable = true
+                isFocusable = true
             }
 
         val title =
@@ -2853,6 +2993,9 @@ class MainActivity : AppCompatActivity() {
 
                 elevation =
                     dp(3).toFloat()
+
+                isClickable = true
+                isFocusable = true
             }
 
         val title =
@@ -3247,9 +3390,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        card.addView(
-            labelView
-        )
+        card.addView(labelView)
 
         return card
     }
@@ -3612,6 +3753,8 @@ class MainActivity : AppCompatActivity() {
                 )
 
                 auth.signOut()
+
+                currentRole = ""
 
                 showLogin()
 
