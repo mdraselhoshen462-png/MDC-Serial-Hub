@@ -1,5 +1,7 @@
 package com.moondiagnosticcenter.app
 
+import android.app.DatePickerDialog
+import android.content.DialogInterface
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -7,13 +9,8 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
@@ -21,6 +18,10 @@ import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -43,7 +44,6 @@ class MainActivity : AppCompatActivity() {
     private val darkText = Color.rgb(45, 45, 45)
     private val lightText = Color.rgb(90, 90, 90)
 
-    // Dashboard colors
     private val totalSerialColor = Color.rgb(224, 247, 250)
     private val addSerialColor = Color.rgb(227, 242, 253)
     private val addDoctorColor = Color.rgb(232, 245, 233)
@@ -81,7 +81,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // SYSTEM BARS
+    // SYSTEM BAR
     // =========================================================
 
     private fun setupSystemBars() {
@@ -410,8 +410,7 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                currentRole =
-                    role.lowercase()
+                currentRole = role.lowercase()
 
                 showDashboard(currentRole)
             }
@@ -439,7 +438,6 @@ class MainActivity : AppCompatActivity() {
 
         drawerLayout =
             DrawerLayout(this).apply {
-
                 setBackgroundColor(backgroundColor)
             }
 
@@ -553,7 +551,8 @@ class MainActivity : AppCompatActivity() {
 
                 setTextColor(Color.WHITE)
 
-                gravity = Gravity.CENTER
+                gravity =
+                    Gravity.CENTER
             }
 
         topBar.addView(
@@ -578,7 +577,6 @@ class MainActivity : AppCompatActivity() {
 
         val scrollView =
             ScrollView(this).apply {
-
                 isFillViewport = true
             }
 
@@ -595,10 +593,6 @@ class MainActivity : AppCompatActivity() {
                     dp(30)
                 )
             }
-
-        // =====================================================
-        // WELCOME
-        // =====================================================
 
         val welcome =
             TextView(this).apply {
@@ -628,9 +622,7 @@ class MainActivity : AppCompatActivity() {
 
         val row1 =
             LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
             }
 
         val totalSerial =
@@ -665,9 +657,7 @@ class MainActivity : AppCompatActivity() {
 
         val row2 =
             LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
             }
 
         val addDoctor =
@@ -724,9 +714,7 @@ class MainActivity : AppCompatActivity() {
 
         val summaryRow =
             LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
             }
 
         summaryRow.addView(
@@ -779,9 +767,7 @@ class MainActivity : AppCompatActivity() {
 
         val row3 =
             LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
             }
 
         val search =
@@ -812,9 +798,7 @@ class MainActivity : AppCompatActivity() {
 
         val row4 =
             LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
             }
 
         val careOf =
@@ -868,7 +852,6 @@ class MainActivity : AppCompatActivity() {
 
         navigationView =
             NavigationView(this).apply {
-
                 setBackgroundColor(Color.WHITE)
             }
 
@@ -883,8 +866,7 @@ class MainActivity : AppCompatActivity() {
                 DrawerLayout.LayoutParams.MATCH_PARENT
             )
 
-        drawerParams.gravity =
-            Gravity.START
+        drawerParams.gravity = Gravity.START
 
         drawerLayout.addView(
             navigationView,
@@ -898,10 +880,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(drawerLayout)
 
-        // =====================================================
-        // MENU
-        // =====================================================
-
         menuButton.setOnClickListener {
 
             drawerLayout.openDrawer(
@@ -910,20 +888,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         // =====================================================
-        // ACTIONS
+        // BUTTON ACTIONS
         // =====================================================
 
         totalSerial.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Total Serial",
-                Toast.LENGTH_SHORT
-            ).show()
+            showTotalSerial()
         }
 
         addSerial.setOnClickListener {
-
             Toast.makeText(
                 this,
                 "Add Serial",
@@ -931,66 +903,75 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        // =====================================================
-        // ADD DOCTOR
-        // =====================================================
+        // -----------------------------------------------------
+        // ADMIN ONLY ADD DOCTOR
+        // -----------------------------------------------------
 
         addDoctor.setOnClickListener {
 
-            showAddDoctor()
+            if (role.lowercase() == "admin") {
+
+                showAddDoctor()
+
+            } else {
+
+                Toast.makeText(
+                    this,
+                    "শুধুমাত্র Admin Doctor যোগ করতে পারবেন",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
 
         addCareOf.setOnClickListener {
 
-            Toast.makeText(
-                this,
-                "Add Care Of",
-                Toast.LENGTH_SHORT
-            ).show()
+            if (role.lowercase() == "admin") {
+
+                showAddCareOf()
+
+            } else {
+
+                Toast.makeText(
+                    this,
+                    "শুধুমাত্র Admin Care Of যোগ করতে পারবেন",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
 
         search.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Search",
-                Toast.LENGTH_SHORT
-            ).show()
+            showTotalSerial()
         }
 
         doctors.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Doctors",
-                Toast.LENGTH_SHORT
-            ).show()
+            showDoctorList()
         }
 
         careOf.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Care Of",
-                Toast.LENGTH_SHORT
-            ).show()
+            showCareOfList()
         }
 
         reports.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Reports",
-                Toast.LENGTH_SHORT
-            ).show()
+            showTotalSerial()
         }
     }
 
     // =========================================================
-    // ADD DOCTOR PAGE
+    // ADD DOCTOR
     // =========================================================
 
     private fun showAddDoctor() {
+
+        if (currentRole != "admin") {
+
+            Toast.makeText(
+                this,
+                "শুধুমাত্র Admin এই কাজ করতে পারবেন",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
 
         setupSystemBars()
 
@@ -1005,11 +986,1654 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
+        val topBar =
+            createInnerTopBar(
+                "Add Doctor"
+            ) {
+                showDashboard(currentRole)
+            }
+
+        root.addView(topBar)
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(20),
+                    dp(20),
+                    dp(30)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "নতুন ডাক্তার যোগ করুন"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(20)
+                )
+            }
+
+        content.addView(heading)
+
+        addFormLabel(
+            content,
+            "ডাক্তারের নাম *"
+        )
+
+        val name =
+            createFormInput(
+                "যেমন: ডাঃ আব্দুল্লাহ আল মুজাহিদ"
+            )
+
+        content.addView(
+            name,
+            formParams()
+        )
+
+        addFormLabel(
+            content,
+            "শিক্ষাগত যোগ্যতা"
+        )
+
+        val qualification =
+            createFormInput(
+                "যেমন: MBBS, BCS (Health), MD"
+            )
+
+        content.addView(
+            qualification,
+            formParams()
+        )
+
+        addFormLabel(
+            content,
+            "বিশেষজ্ঞতা"
+        )
+
+        val specialty =
+            createFormInput(
+                "যেমন: Medicine Specialist"
+            )
+
+        content.addView(
+            specialty,
+            formParams()
+        )
+
+        addFormLabel(
+            content,
+            "রোগী দেখার সময়"
+        )
+
+        val visitingTime =
+            createFormInput(
+                "যেমন: শুক্রবার সন্ধ্যা ৬টা - রাত ১০টা"
+            )
+
+        content.addView(
+            visitingTime,
+            formParams()
+        )
+
+        addFormLabel(
+            content,
+            "মোবাইল নম্বর"
+        )
+
+        val mobile =
+            createFormInput(
+                "01XXXXXXXXX"
+            )
+
+        mobile.inputType =
+            InputType.TYPE_CLASS_PHONE
+
+        content.addView(
+            mobile,
+            formParams()
+        )
+
+        val status =
+            createStatusText()
+
+        content.addView(status)
+
+        val save =
+            createPrimaryButton(
+                "💾  SAVE DOCTOR"
+            )
+
+        content.addView(
+            save,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            )
+        )
+
+        save.setOnClickListener {
+
+            val doctorName =
+                name.text.toString().trim()
+
+            if (doctorName.isEmpty()) {
+
+                name.error =
+                    "ডাক্তারের নাম দিন"
+
+                name.requestFocus()
+
+                return@setOnClickListener
+            }
+
+            save.isEnabled = false
+
+            status.text =
+                "Doctor সংরক্ষণ হচ্ছে..."
+
+            val data =
+                hashMapOf(
+                    "name" to doctorName,
+                    "qualification" to
+                            qualification.text.toString().trim(),
+                    "specialty" to
+                            specialty.text.toString().trim(),
+                    "visitingTime" to
+                            visitingTime.text.toString().trim(),
+                    "mobile" to
+                            mobile.text.toString().trim(),
+                    "active" to true,
+                    "createdByUid" to
+                            (auth.currentUser?.uid ?: ""),
+                    "createdAt" to
+                            FieldValue.serverTimestamp()
+                )
+
+            db.collection("doctors")
+                .add(data)
+                .addOnSuccessListener {
+
+                    save.isEnabled = true
+
+                    status.text =
+                        "Doctor সফলভাবে যোগ হয়েছে ✓"
+
+                    Toast.makeText(
+                        this,
+                        "Doctor সফলভাবে যোগ হয়েছে",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    name.text.clear()
+                    qualification.text.clear()
+                    specialty.text.clear()
+                    visitingTime.text.clear()
+                    mobile.text.clear()
+                }
+                .addOnFailureListener { error ->
+
+                    save.isEnabled = true
+
+                    status.text = ""
+
+                    Toast.makeText(
+                        this,
+                        "Doctor যোগ করা যায়নি: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+    }
+
+    // =========================================================
+    // DOCTOR LIST
+    // =========================================================
+
+    private fun showDoctorList() {
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Doctor List"
+            ) {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(16),
+                    dp(16),
+                    dp(16),
+                    dp(30)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "👨‍⚕️ Doctor List"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(15)
+                )
+            }
+
+        content.addView(heading)
+
+        val progress =
+            ProgressBar(this)
+
+        content.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(50)
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+
+        db.collection("doctors")
+            .whereEqualTo("active", true)
+            .orderBy(
+                "name",
+                Query.Direction.ASCENDING
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                progress.visibility =
+                    View.GONE
+
+                if (result.isEmpty) {
+
+                    val empty =
+                        createEmptyText(
+                            "কোনো Doctor পাওয়া যায়নি"
+                        )
+
+                    content.addView(empty)
+
+                    return@addOnSuccessListener
+                }
+
+                for (document in result.documents) {
+
+                    val doctorName =
+                        document.getString("name")
+                            ?: "Unknown Doctor"
+
+                    val specialty =
+                        document.getString("specialty")
+                            ?: ""
+
+                    val qualification =
+                        document.getString("qualification")
+                            ?: ""
+
+                    val card =
+                        createDoctorListCard(
+                            doctorName,
+                            specialty,
+                            qualification
+                        )
+
+                    card.setOnClickListener {
+
+                        showDoctorDateSelection(
+                            document.id,
+                            doctorName
+                        )
+                    }
+
+                    content.addView(card)
+                }
+            }
+            .addOnFailureListener { error ->
+
+                progress.visibility =
+                    View.GONE
+
+                Toast.makeText(
+                    this,
+                    "Doctor List পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // DOCTOR DATE SELECTION
+    // =========================================================
+
+    private fun showDoctorDateSelection(
+        doctorId: String,
+        doctorName: String
+    ) {
+
+        val calendar =
+            Calendar.getInstance()
+
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+
+                val selected =
+                    Calendar.getInstance()
+
+                selected.set(
+                    year,
+                    month,
+                    day
+                )
+
+                val date =
+                    SimpleDateFormat(
+                        "yyyy-MM-dd",
+                        Locale.getDefault()
+                    ).format(
+                        selected.time
+                    )
+
+                showDoctorSerials(
+                    doctorId,
+                    doctorName,
+                    date
+                )
+            },
+            calendar.get(
+                Calendar.YEAR
+            ),
+            calendar.get(
+                Calendar.MONTH
+            ),
+            calendar.get(
+                Calendar.DAY_OF_MONTH
+            )
+        ).apply {
+
+            setTitle(
+                "তারিখ নির্বাচন করুন"
+            )
+
+            show()
+        }
+    }
+
+    // =========================================================
+    // DOCTOR SERIALS
+    // =========================================================
+
+    private fun showDoctorSerials(
+        doctorId: String,
+        doctorName: String,
+        date: String
+    ) {
+
+        showSerialListPage(
+            title = "Doctor: $doctorName",
+            filterField = "doctorId",
+            filterValue = doctorId,
+            date = date
+        )
+    }
+
+    // =========================================================
+    // CARE OF LIST
+    // =========================================================
+
+    private fun showCareOfList() {
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Care Of List"
+            ) {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(16),
+                    dp(16),
+                    dp(16),
+                    dp(30)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "👤 Care Of List"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(15)
+                )
+            }
+
+        content.addView(heading)
+
+        val progress =
+            ProgressBar(this)
+
+        content.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(50)
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+
+        db.collection("careOf")
+            .whereEqualTo("active", true)
+            .orderBy(
+                "name",
+                Query.Direction.ASCENDING
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                progress.visibility =
+                    View.GONE
+
+                if (result.isEmpty) {
+
+                    content.addView(
+                        createEmptyText(
+                            "কোনো Care Of পাওয়া যায়নি"
+                        )
+                    )
+
+                    return@addOnSuccessListener
+                }
+
+                for (document in result.documents) {
+
+                    val name =
+                        document.getString("name")
+                            ?: "Unknown"
+
+                    val phone =
+                        document.getString("mobile")
+                            ?: ""
+
+                    val card =
+                        createCareOfListCard(
+                            name,
+                            phone
+                        )
+
+                    card.setOnClickListener {
+
+                        showCareOfDateSelection(
+                            document.id,
+                            name
+                        )
+                    }
+
+                    content.addView(card)
+                }
+            }
+            .addOnFailureListener { error ->
+
+                progress.visibility =
+                    View.GONE
+
+                Toast.makeText(
+                    this,
+                    "Care Of List পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // CARE OF DATE
+    // =========================================================
+
+    private fun showCareOfDateSelection(
+        careOfId: String,
+        careOfName: String
+    ) {
+
+        val calendar =
+            Calendar.getInstance()
+
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+
+                val selected =
+                    Calendar.getInstance()
+
+                selected.set(
+                    year,
+                    month,
+                    day
+                )
+
+                val date =
+                    SimpleDateFormat(
+                        "yyyy-MM-dd",
+                        Locale.getDefault()
+                    ).format(
+                        selected.time
+                    )
+
+                showCareOfSerials(
+                    careOfId,
+                    careOfName,
+                    date
+                )
+            },
+            calendar.get(
+                Calendar.YEAR
+            ),
+            calendar.get(
+                Calendar.MONTH
+            ),
+            calendar.get(
+                Calendar.DAY_OF_MONTH
+            )
+        ).apply {
+
+            setTitle(
+                "তারিখ নির্বাচন করুন"
+            )
+
+            show()
+        }
+    }
+
+    // =========================================================
+    // CARE OF SERIALS
+    // =========================================================
+
+    private fun showCareOfSerials(
+        careOfId: String,
+        careOfName: String,
+        date: String
+    ) {
+
+        showSerialListPage(
+            title = "Care Of: $careOfName",
+            filterField = "careOfId",
+            filterValue = careOfId,
+            date = date
+        )
+    }
+
+    // =========================================================
+    // SERIAL LIST PAGE
+    // =========================================================
+
+    private fun showSerialListPage(
+        title: String,
+        filterField: String,
+        filterValue: String,
+        date: String
+    ) {
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Serial List"
+            ) {
+
+                if (filterField == "doctorId") {
+                    showDoctorList()
+                } else {
+                    showCareOfList()
+                }
+            }
+        )
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(14),
+                    dp(14),
+                    dp(14),
+                    dp(30)
+                )
+            }
+
+        val titleText =
+            TextView(this).apply {
+
+                text = title
+
+                textSize = 22f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(5)
+                )
+            }
+
+        content.addView(titleText)
+
+        val dateText =
+            TextView(this).apply {
+
+                text =
+                    "📅 তারিখ: $date"
+
+                textSize = 17f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(primaryColor)
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(15)
+                )
+            }
+
+        content.addView(dateText)
+
+        val progress =
+            ProgressBar(this)
+
+        content.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(50)
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+
+        db.collection("serials")
+            .whereEqualTo(
+                filterField,
+                filterValue
+            )
+            .whereEqualTo(
+                "createdDate",
+                date
+            )
+            .orderBy(
+                "number",
+                Query.Direction.ASCENDING
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                progress.visibility =
+                    View.GONE
+
+                if (result.isEmpty) {
+
+                    content.addView(
+                        createEmptyText(
+                            "এই তারিখে কোনো Serial পাওয়া যায়নি"
+                        )
+                    )
+
+                    return@addOnSuccessListener
+                }
+
+                for (document in result.documents) {
+
+                    content.addView(
+                        createSerialCard(
+                            document
+                        )
+                    )
+                }
+            }
+            .addOnFailureListener { error ->
+
+                progress.visibility =
+                    View.GONE
+
+                Toast.makeText(
+                    this,
+                    "Serial List পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // SERIAL CARD
+    // =========================================================
+
+    private fun createSerialCard(
+        document: com.google.firebase.firestore.DocumentSnapshot
+    ): LinearLayout {
+
+        val card =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(16),
+                    dp(14),
+                    dp(16),
+                    dp(14)
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(15)
+                    )
+
+                elevation =
+                    dp(3).toFloat()
+            }
+
+        val number =
+            document.getLong("number")
+                ?.toString()
+                ?: document.getString("number")
+                ?: "-"
+
+        val patient =
+            document.getString("patient")
+                ?: "-"
+
+        val careOf =
+            document.getString("careOfName")
+                ?: document.getString("careOf")
+                ?: "-"
+
+        val doctor =
+            document.getString("doctorName")
+                ?: document.getString("doctor")
+                ?: "-"
+
+        val status =
+            document.getString("status")
+                ?: "Waiting"
+
+        val createdByRole =
+            document.getString("createdByRole")
+                ?: "-"
+
+        val createdByName =
+            document.getString("createdByName")
+                ?: document.getString("createdBy")
+                ?: "-"
+
+        val title =
+            TextView(this).apply {
+
+                text =
+                    "Serial #$number"
+
+                textSize = 21f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(primaryColor)
+            }
+
+        card.addView(title)
+
+        card.addView(
+            createInfoText(
+                "👤 Patient",
+                patient
+            )
+        )
+
+        card.addView(
+            createInfoText(
+                "👨‍⚕️ Doctor",
+                doctor
+            )
+        )
+
+        card.addView(
+            createInfoText(
+                "👤 Care Of",
+                careOf
+            )
+        )
+
+        card.addView(
+            createInfoText(
+                "✍ Created By",
+                "$createdByName ($createdByRole)"
+            )
+        )
+
+        card.addView(
+            createInfoText(
+                "📌 Status",
+                status
+            )
+        )
+
+        val buttonRow =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.END
+
+                setPadding(
+                    0,
+                    dp(10),
+                    0,
+                    0
+                )
+            }
+
         // =====================================================
-        // TOP BAR
+        // CREATOR EDIT/DELETE
         // =====================================================
 
-        val topBar =
+        val currentUid =
+            auth.currentUser?.uid ?: ""
+
+        val creatorUid =
+            document.getString(
+                "createdByUid"
+            ) ?: ""
+
+        val canEditDelete =
+            currentUid == creatorUid ||
+                    currentRole == "admin"
+
+        if (canEditDelete) {
+
+            val edit =
+                createSmallButton(
+                    "✏ Edit"
+                )
+
+            edit.setOnClickListener {
+
+                showEditSerialDialog(
+                    document
+                )
+            }
+
+            buttonRow.addView(
+                edit
+            )
+
+            val delete =
+                createSmallButton(
+                    "🗑 Delete"
+                )
+
+            delete.setOnClickListener {
+
+                confirmDeleteSerial(
+                    document.id
+                )
+            }
+
+            buttonRow.addView(
+                delete
+            )
+        }
+
+        // =====================================================
+        // OPERATOR / ADMIN STATUS
+        // =====================================================
+
+        if (
+            currentRole == "operator" ||
+            currentRole == "admin"
+        ) {
+
+            val statusButton =
+                createSmallButton(
+                    "📌 Status"
+                )
+
+            statusButton.setOnClickListener {
+
+                showStatusDialog(
+                    document.id,
+                    status
+                )
+            }
+
+            buttonRow.addView(
+                statusButton
+            )
+        }
+
+        card.addView(buttonRow)
+
+        val params =
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                setMargins(
+                    0,
+                    dp(6),
+                    0,
+                    dp(6)
+                )
+            }
+
+        card.layoutParams = params
+
+        return card
+    }
+
+    // =========================================================
+    // EDIT SERIAL
+    // =========================================================
+
+    private fun showEditSerialDialog(
+        document: com.google.firebase.firestore.DocumentSnapshot
+    ) {
+
+        val patientInput =
+            EditText(this).apply {
+
+                hint = "Patient Name"
+
+                setText(
+                    document.getString(
+                        "patient"
+                    ) ?: ""
+                )
+
+                textSize = 17f
+            }
+
+        val container =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(10),
+                    dp(20),
+                    0
+                )
+
+                addView(
+                    patientInput,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(60)
+                    )
+                )
+            }
+
+        AlertDialog.Builder(this)
+            .setTitle("Edit Serial")
+            .setView(container)
+            .setNegativeButton(
+                "Cancel",
+                null
+            )
+            .setPositiveButton(
+                "Save"
+            ) { _: DialogInterface, _: Int ->
+
+                val newPatient =
+                    patientInput.text.toString().trim()
+
+                if (newPatient.isEmpty()) {
+
+                    Toast.makeText(
+                        this,
+                        "Patient Name দিন",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    return@setPositiveButton
+                }
+
+                db.collection("serials")
+                    .document(document.id)
+                    .update(
+                        "patient",
+                        newPatient
+                    )
+                    .addOnSuccessListener {
+
+                        Toast.makeText(
+                            this,
+                            "Serial আপডেট হয়েছে",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    .addOnFailureListener { error ->
+
+                        Toast.makeText(
+                            this,
+                            "Update ব্যর্থ: ${error.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            .show()
+    }
+
+    // =========================================================
+    // DELETE SERIAL
+    // =========================================================
+
+    private fun confirmDeleteSerial(
+        documentId: String
+    ) {
+
+        AlertDialog.Builder(this)
+            .setTitle("Serial Delete")
+            .setMessage(
+                "আপনি কি এই Serial টি Delete করতে চান?"
+            )
+            .setNegativeButton(
+                "না",
+                null
+            )
+            .setPositiveButton(
+                "হ্যাঁ, Delete"
+            ) { _, _ ->
+
+                db.collection("serials")
+                    .document(documentId)
+                    .delete()
+                    .addOnSuccessListener {
+
+                        Toast.makeText(
+                            this,
+                            "Serial Delete হয়েছে",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    .addOnFailureListener { error ->
+
+                        Toast.makeText(
+                            this,
+                            "Delete ব্যর্থ: ${error.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            .show()
+    }
+
+    // =========================================================
+    // STATUS DIALOG
+    // =========================================================
+
+    private fun showStatusDialog(
+        documentId: String,
+        currentStatus: String
+    ) {
+
+        val statuses =
+            arrayOf(
+                "Waiting",
+                "Completed",
+                "Cancelled"
+            )
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                "Serial Status"
+            )
+            .setSingleChoiceItems(
+                statuses,
+                statuses.indexOf(currentStatus)
+                    .coerceAtLeast(0)
+            ) { dialog, which ->
+
+                val selected =
+                    statuses[which]
+
+                db.collection("serials")
+                    .document(documentId)
+                    .update(
+                        "status",
+                        selected
+                    )
+                    .addOnSuccessListener {
+
+                        Toast.makeText(
+                            this,
+                            "Status: $selected",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        dialog.dismiss()
+                    }
+                    .addOnFailureListener { error ->
+
+                        Toast.makeText(
+                            this,
+                            "Status পরিবর্তন করা যায়নি: ${error.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            .setNegativeButton(
+                "Cancel",
+                null
+            )
+            .show()
+    }
+
+    // =========================================================
+    // TOTAL SERIAL
+    // =========================================================
+
+    private fun showTotalSerial() {
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Total Serial"
+            ) {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(16),
+                    dp(16),
+                    dp(16),
+                    dp(30)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "📋 Total Serial"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+            }
+
+        content.addView(heading)
+
+        val progress =
+            ProgressBar(this)
+
+        content.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(50)
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+        )
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+
+        db.collection("serials")
+            .orderBy(
+                "number",
+                Query.Direction.ASCENDING
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                progress.visibility =
+                    View.GONE
+
+                if (result.isEmpty) {
+
+                    content.addView(
+                        createEmptyText(
+                            "কোনো Serial পাওয়া যায়নি"
+                        )
+                    )
+
+                    return@addOnSuccessListener
+                }
+
+                for (document in result.documents) {
+
+                    content.addView(
+                        createSerialCard(
+                            document
+                        )
+                    )
+                }
+            }
+            .addOnFailureListener { error ->
+
+                progress.visibility =
+                    View.GONE
+
+                Toast.makeText(
+                    this,
+                    "Total Serial পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // ADD CARE OF
+    // =========================================================
+
+    private fun showAddCareOf() {
+
+        if (currentRole != "admin") {
+
+            Toast.makeText(
+                this,
+                "শুধুমাত্র Admin Care Of যোগ করতে পারবেন",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
+
+        setupSystemBars()
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Add Care Of"
+            ) {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll =
+            ScrollView(this)
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(20),
+                    dp(20),
+                    dp(30)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "নতুন Care Of যোগ করুন"
+
+                textSize = 25f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(darkText)
+            }
+
+        content.addView(heading)
+
+        addFormLabel(
+            content,
+            "Care Of নাম *"
+        )
+
+        val name =
+            createFormInput(
+                "Care Of Name"
+            )
+
+        content.addView(
+            name,
+            formParams()
+        )
+
+        addFormLabel(
+            content,
+            "মোবাইল নম্বর"
+        )
+
+        val mobile =
+            createFormInput(
+                "01XXXXXXXXX"
+            )
+
+        mobile.inputType =
+            InputType.TYPE_CLASS_PHONE
+
+        content.addView(
+            mobile,
+            formParams()
+        )
+
+        val status =
+            createStatusText()
+
+        content.addView(status)
+
+        val save =
+            createPrimaryButton(
+                "💾  SAVE CARE OF"
+            )
+
+        content.addView(
+            save,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            )
+        )
+
+        save.setOnClickListener {
+
+            val careName =
+                name.text.toString().trim()
+
+            if (careName.isEmpty()) {
+
+                name.error =
+                    "Care Of নাম দিন"
+
+                return@setOnClickListener
+            }
+
+            save.isEnabled = false
+
+            status.text =
+                "Care Of সংরক্ষণ হচ্ছে..."
+
+            val data =
+                hashMapOf(
+                    "name" to careName,
+                    "mobile" to
+                            mobile.text.toString().trim(),
+                    "active" to true,
+                    "createdByUid" to
+                            (auth.currentUser?.uid ?: ""),
+                    "createdAt" to
+                            FieldValue.serverTimestamp()
+                )
+
+            db.collection("careOf")
+                .add(data)
+                .addOnSuccessListener {
+
+                    save.isEnabled = true
+
+                    status.text =
+                        "Care Of সফলভাবে যোগ হয়েছে ✓"
+
+                    Toast.makeText(
+                        this,
+                        "Care Of সফলভাবে যোগ হয়েছে",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
+                    name.text.clear()
+                    mobile.text.clear()
+                }
+                .addOnFailureListener { error ->
+
+                    save.isEnabled = true
+
+                    status.text = ""
+
+                    Toast.makeText(
+                        this,
+                        "Care Of যোগ করা যায়নি: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+    }
+
+    // =========================================================
+    // INNER TOP BAR
+    // =========================================================
+
+    private fun createInnerTopBar(
+        titleText: String,
+        backAction: () -> Unit
+    ): LinearLayout {
+
+        val bar =
             LinearLayout(this).apply {
 
                 orientation =
@@ -1033,7 +2657,7 @@ class MainActivity : AppCompatActivity() {
                     dp(8).toFloat()
             }
 
-        val backButton =
+        val back =
             ImageButton(this).apply {
 
                 setImageResource(
@@ -1048,12 +2672,13 @@ class MainActivity : AppCompatActivity() {
                     Color.WHITE
                 )
 
-                contentDescription =
-                    "Back"
+                setOnClickListener {
+                    backAction()
+                }
             }
 
-        topBar.addView(
-            backButton,
+        bar.addView(
+            back,
             LinearLayout.LayoutParams(
                 dp(60),
                 dp(60)
@@ -1063,8 +2688,7 @@ class MainActivity : AppCompatActivity() {
         val title =
             TextView(this).apply {
 
-                text =
-                    "Add Doctor"
+                text = titleText
 
                 textSize = 22f
 
@@ -1086,7 +2710,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        topBar.addView(
+        bar.addView(
             title,
             LinearLayout.LayoutParams(
                 0,
@@ -1095,356 +2719,249 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        root.addView(
-            topBar,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(88)
-            )
-        )
+        return bar.apply {
+            layoutParams =
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(88)
+                )
+        }
+    }
 
-        // =====================================================
-        // SCROLL
-        // =====================================================
+    // =========================================================
+    // DOCTOR CARD
+    // =========================================================
 
-        val scrollView =
-            ScrollView(this).apply {
+    private fun createDoctorListCard(
+        name: String,
+        specialty: String,
+        qualification: String
+    ): LinearLayout {
 
-                isFillViewport = true
-            }
-
-        val content =
+        val card =
             LinearLayout(this).apply {
 
                 orientation =
                     LinearLayout.VERTICAL
 
                 setPadding(
-                    dp(20),
-                    dp(20),
-                    dp(20),
-                    dp(30)
+                    dp(18),
+                    dp(16),
+                    dp(18),
+                    dp(16)
                 )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(16)
+                    )
+
+                elevation =
+                    dp(3).toFloat()
             }
 
-        // =====================================================
-        // PAGE TITLE
-        // =====================================================
-
-        val pageTitle =
+        val title =
             TextView(this).apply {
 
                 text =
-                    "নতুন ডাক্তার যোগ করুন"
+                    "👨‍⚕️ $name"
 
-                textSize = 25f
+                textSize = 19f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(20)
-                )
-            }
-
-        content.addView(pageTitle)
-
-        // =====================================================
-        // DOCTOR NAME
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "ডাক্তারের নাম *"
-        )
-
-        val doctorName =
-            createFormInput(
-                "যেমন: ডাঃ আব্দুল্লাহ আল মুজাহিদ"
-            )
-
-        content.addView(
-            doctorName,
-            formParams()
-        )
-
-        // =====================================================
-        // QUALIFICATION
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "শিক্ষাগত যোগ্যতা"
-        )
-
-        val qualification =
-            createFormInput(
-                "যেমন: MBBS, BCS (Health), MD"
-            )
-
-        content.addView(
-            qualification,
-            formParams()
-        )
-
-        // =====================================================
-        // SPECIALTY
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "বিশেষজ্ঞতা"
-        )
-
-        val specialty =
-            createFormInput(
-                "যেমন: Medicine Specialist"
-            )
-
-        content.addView(
-            specialty,
-            formParams()
-        )
-
-        // =====================================================
-        // VISITING TIME
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "রোগী দেখার সময়"
-        )
-
-        val visitingTime =
-            createFormInput(
-                "যেমন: শুক্রবার সন্ধ্যা ৬টা - রাত ১০টা"
-            )
-
-        content.addView(
-            visitingTime,
-            formParams()
-        )
-
-        // =====================================================
-        // MOBILE
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "মোবাইল নম্বর"
-        )
-
-        val mobile =
-            createFormInput(
-                "যেমন: 01XXXXXXXXX"
-            )
-
-        mobile.inputType =
-            InputType.TYPE_CLASS_PHONE
-
-        content.addView(
-            mobile,
-            formParams()
-        )
-
-        // =====================================================
-        // STATUS
-        // =====================================================
-
-        val status =
-            TextView(this).apply {
-
-                textSize = 15f
-
-                gravity =
-                    Gravity.CENTER
 
                 setTextColor(
                     primaryColor
                 )
+            }
 
-                setPadding(
+        card.addView(title)
+
+        if (qualification.isNotEmpty()) {
+
+            card.addView(
+                createInfoText(
+                    "🎓 Qualification",
+                    qualification
+                )
+            )
+        }
+
+        if (specialty.isNotEmpty()) {
+
+            card.addView(
+                createInfoText(
+                    "🩺 Specialty",
+                    specialty
+                )
+            )
+        }
+
+        card.addView(
+            createInfoText(
+                "",
+                "Tap করুন → তারিখ নির্বাচন করে Serial দেখুন"
+            )
+        )
+
+        card.layoutParams =
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+
+                setMargins(
                     0,
-                    dp(10),
+                    dp(6),
                     0,
-                    dp(10)
+                    dp(6)
                 )
             }
 
-        content.addView(status)
+        return card
+    }
 
-        // =====================================================
-        // SAVE BUTTON
-        // =====================================================
+    // =========================================================
+    // CARE OF CARD
+    // =========================================================
 
-        val saveButton =
-            Button(this).apply {
+    private fun createCareOfListCard(
+        name: String,
+        phone: String
+    ): LinearLayout {
+
+        val card =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(18),
+                    dp(16),
+                    dp(18),
+                    dp(16)
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(16)
+                    )
+
+                elevation =
+                    dp(3).toFloat()
+            }
+
+        val title =
+            TextView(this).apply {
 
                 text =
-                    "💾  SAVE DOCTOR"
+                    "👤 $name"
 
-                textSize = 18f
+                textSize = 19f
 
                 typeface =
                     Typeface.DEFAULT_BOLD
 
                 setTextColor(
-                    Color.WHITE
+                    primaryColor
                 )
-
-                setAllCaps(false)
-
-                background =
-                    roundedCardDrawable(
-                        topBarColor,
-                        dp(15)
-                    )
-
-                elevation =
-                    dp(4).toFloat()
             }
 
-        content.addView(
-            saveButton,
+        card.addView(title)
+
+        if (phone.isNotEmpty()) {
+
+            card.addView(
+                createInfoText(
+                    "📱 Mobile",
+                    phone
+                )
+            )
+        }
+
+        card.addView(
+            createInfoText(
+                "",
+                "Tap করুন → তারিখ নির্বাচন করে Serial দেখুন"
+            )
+        )
+
+        card.layoutParams =
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
 
                 setMargins(
                     0,
-                    dp(15),
+                    dp(6),
                     0,
-                    dp(10)
+                    dp(6)
                 )
             }
-        )
 
-        // =====================================================
-        // SAVE
-        // =====================================================
+        return card
+    }
 
-        saveButton.setOnClickListener {
+    // =========================================================
+    // INFO TEXT
+    // =========================================================
 
-            val name =
-                doctorName.text.toString().trim()
+    private fun createInfoText(
+        label: String,
+        value: String
+    ): TextView {
 
-            val degree =
-                qualification.text.toString().trim()
+        return TextView(this).apply {
 
-            val specialist =
-                specialty.text.toString().trim()
-
-            val time =
-                visitingTime.text.toString().trim()
-
-            val phone =
-                mobile.text.toString().trim()
-
-            // -----------------------------------------------
-            // VALIDATION
-            // -----------------------------------------------
-
-            if (name.isEmpty()) {
-
-                doctorName.error =
-                    "ডাক্তারের নাম দিন"
-
-                doctorName.requestFocus()
-
-                return@setOnClickListener
-            }
-
-            saveButton.isEnabled = false
-
-            status.text =
-                "Doctor তথ্য সংরক্ষণ হচ্ছে..."
-
-            // -----------------------------------------------
-            // FIRESTORE DATA
-            // -----------------------------------------------
-
-            val doctorData =
-                hashMapOf(
-                    "name" to name,
-                    "qualification" to degree,
-                    "specialty" to specialist,
-                    "visitingTime" to time,
-                    "mobile" to phone,
-                    "active" to true,
-                    "createdBy" to (
-                        auth.currentUser?.uid ?: ""
-                    ),
-                    "createdAt" to
-                            FieldValue.serverTimestamp()
-                )
-
-            // -----------------------------------------------
-            // SAVE
-            // -----------------------------------------------
-
-            db.collection("doctors")
-                .add(doctorData)
-                .addOnSuccessListener {
-
-                    saveButton.isEnabled = true
-
-                    status.text =
-                        "Doctor সফলভাবে যোগ হয়েছে ✓"
-
-                    Toast.makeText(
-                        this,
-                        "Doctor সফলভাবে যোগ হয়েছে",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    doctorName.text.clear()
-                    qualification.text.clear()
-                    specialty.text.clear()
-                    visitingTime.text.clear()
-                    mobile.text.clear()
+            text =
+                if (label.isEmpty()) {
+                    value
+                } else {
+                    "$label: $value"
                 }
-                .addOnFailureListener { error ->
 
-                    saveButton.isEnabled = true
+            textSize = 15f
 
-                    status.text = ""
+            setTextColor(lightText)
 
-                    Toast.makeText(
-                        this,
-                        "Doctor যোগ করা যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        }
-
-        scrollView.addView(content)
-
-        root.addView(
-            scrollView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+            setPadding(
                 0,
-                1f
+                dp(5),
+                0,
+                dp(2)
             )
-        )
+        }
+    }
 
-        setContentView(root)
+    // =========================================================
+    // EMPTY
+    // =========================================================
 
-        // =====================================================
-        // BACK
-        // =====================================================
+    private fun createEmptyText(
+        message: String
+    ): TextView {
 
-        backButton.setOnClickListener {
+        return TextView(this).apply {
 
-            showDashboard(currentRole)
+            text = message
+
+            textSize = 18f
+
+            gravity = Gravity.CENTER
+
+            setTextColor(lightText)
+
+            setPadding(
+                dp(10),
+                dp(40),
+                dp(10),
+                dp(40)
+            )
         }
     }
 
@@ -1467,9 +2984,7 @@ class MainActivity : AppCompatActivity() {
                 typeface =
                     Typeface.DEFAULT_BOLD
 
-                setTextColor(
-                    darkText
-                )
+                setTextColor(darkText)
 
                 setPadding(
                     dp(4),
@@ -1479,13 +2994,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        parent.addView(
-            label,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
+        parent.addView(label)
     }
 
     // =========================================================
@@ -1502,9 +3011,7 @@ class MainActivity : AppCompatActivity() {
 
             textSize = 17f
 
-            setTextColor(
-                darkText
-            )
+            setTextColor(darkText)
 
             setHintTextColor(
                 Color.rgb(140, 140, 140)
@@ -1548,6 +3055,114 @@ class MainActivity : AppCompatActivity() {
                 0,
                 dp(14)
             )
+        }
+    }
+
+    // =========================================================
+    // STATUS TEXT
+    // =========================================================
+
+    private fun createStatusText():
+            TextView {
+
+        return TextView(this).apply {
+
+            textSize = 15f
+
+            gravity =
+                Gravity.CENTER
+
+            setTextColor(
+                primaryColor
+            )
+
+            setPadding(
+                0,
+                dp(10),
+                0,
+                dp(10)
+            )
+        }
+    }
+
+    // =========================================================
+    // PRIMARY BUTTON
+    // =========================================================
+
+    private fun createPrimaryButton(
+        text: String
+    ): Button {
+
+        return Button(this).apply {
+
+            this.text = text
+
+            textSize = 18f
+
+            typeface =
+                Typeface.DEFAULT_BOLD
+
+            setTextColor(Color.WHITE)
+
+            setAllCaps(false)
+
+            background =
+                roundedCardDrawable(
+                    topBarColor,
+                    dp(15)
+                )
+
+            elevation =
+                dp(4).toFloat()
+        }
+    }
+
+    // =========================================================
+    // SMALL BUTTON
+    // =========================================================
+
+    private fun createSmallButton(
+        text: String
+    ): Button {
+
+        return Button(this).apply {
+
+            this.text = text
+
+            textSize = 13f
+
+            setAllCaps(false)
+
+            setTextColor(
+                primaryColor
+            )
+
+            setPadding(
+                dp(5),
+                0,
+                dp(5),
+                0
+            )
+
+            background =
+                roundedCardDrawable(
+                    Color.rgb(235, 242, 250),
+                    dp(10)
+                )
+
+            layoutParams =
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    dp(45)
+                ).apply {
+
+                    setMargins(
+                        dp(4),
+                        0,
+                        dp(4),
+                        0
+                    )
+                }
         }
     }
 
@@ -1599,8 +3214,6 @@ class MainActivity : AppCompatActivity() {
 
                 gravity =
                     Gravity.CENTER
-
-                includeFontPadding = true
             }
 
         val labelView =
@@ -1616,9 +3229,7 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER
 
-                setTextColor(
-                    darkText
-                )
+                setTextColor(darkText)
 
                 setPadding(
                     dp(4),
@@ -1637,11 +3248,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         card.addView(
-            labelView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            labelView
         )
 
         return card
@@ -1729,9 +3336,7 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER
 
-                setTextColor(
-                    lightText
-                )
+                setTextColor(lightText)
 
                 typeface =
                     Typeface.DEFAULT_BOLD
@@ -1750,9 +3355,7 @@ class MainActivity : AppCompatActivity() {
                 gravity =
                     Gravity.CENTER
 
-                setTextColor(
-                    primaryColor
-                )
+                setTextColor(primaryColor)
             }
 
         card.addView(titleText)
@@ -1799,10 +3402,6 @@ class MainActivity : AppCompatActivity() {
     ) {
 
         navigationView.menu.clear()
-
-        // =====================================================
-        // HEADER
-        // =====================================================
 
         val header =
             LinearLayout(this).apply {
@@ -1880,10 +3479,10 @@ class MainActivity : AppCompatActivity() {
         navigationView.addHeaderView(header)
 
         // =====================================================
-        // ADMIN
+        // ADMIN CONTROL
         // =====================================================
 
-        if (role.lowercase() == "admin") {
+        if (role == "admin") {
 
             navigationView.menu.add(
                 "Admin Control Panel"
