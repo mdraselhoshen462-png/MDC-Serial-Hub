@@ -12,6 +12,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.text.InputType
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -34,6 +36,20 @@ import java.util.Calendar
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
+
+    private data class CareOfOption(
+        val id: String,
+        val name: String,
+        val address: String
+    ) {
+        override fun toString(): String {
+            return if (address.isBlank()) {
+                name
+            } else {
+                "$name\n$address"
+            }
+        }
+    }
 
     private lateinit var auth: FirebaseAuth
     private val db = FirebaseFirestore.getInstance()
@@ -103,7 +119,7 @@ class MainActivity : AppCompatActivity() {
 
     private var addSerialPatientInput: EditText? = null
     private var addSerialDoctorSpinner: Spinner? = null
-    private var addSerialCareOfSpinner: Spinner? = null
+    private var addSerialCareOfSpinner: AutoCompleteTextView? = null
     private var addSerialDateText: TextView? = null
     private var addSerialNumberText: TextView? = null
     private var addSerialStarCheck: CheckBox? = null
@@ -115,12 +131,15 @@ class MainActivity : AppCompatActivity() {
 
     private val careOfIds = mutableListOf<String>()
     private val careOfNames = mutableListOf<String>()
+    private val careOfAddresses = mutableListOf<String>()
+    private val careOfOptions = mutableListOf<CareOfOption>()
 
     private var selectedDoctorId: String = ""
     private var selectedDoctorName: String = ""
 
     private var selectedCareOfId: String = ""
     private var selectedCareOfName: String = ""
+    private var selectedCareOfAddress: String = ""
 
     private var selectedSerialDate: String =
         SimpleDateFormat(
@@ -1148,12 +1167,15 @@ class MainActivity : AppCompatActivity() {
 
         careOfIds.clear()
         careOfNames.clear()
+        careOfAddresses.clear()
+        careOfOptions.clear()
 
         selectedDoctorId = ""
         selectedDoctorName = ""
 
         selectedCareOfId = ""
         selectedCareOfName = ""
+        selectedCareOfAddress = ""
 
         selectedSerialDate =
             SimpleDateFormat(
@@ -1274,15 +1296,11 @@ class MainActivity : AppCompatActivity() {
         val starCheck =
             CheckBox(this).apply {
 
-                text = "⭐"
-
-                textSize = 28f
-
-                gravity =
-                    Gravity.CENTER
-
-                buttonDrawable =
-                    null
+                text = "☆"
+                textSize = 34f
+                gravity = Gravity.CENTER
+                buttonDrawable = null
+                setTextColor(Color.rgb(145, 145, 145))
 
                 setPadding(
                     dp(8),
@@ -1293,6 +1311,17 @@ class MainActivity : AppCompatActivity() {
 
                 contentDescription =
                     "VIP Patient"
+
+                setOnCheckedChangeListener { button, checked ->
+                    button.text = if (checked) "★" else "☆"
+                    button.setTextColor(
+                        if (checked) {
+                            Color.rgb(255, 193, 7)
+                        } else {
+                            Color.rgb(145, 145, 145)
+                        }
+                    )
+                }
             }
 
         addSerialStarCheck =
@@ -1402,7 +1431,27 @@ class MainActivity : AppCompatActivity() {
             }
 
         val careSpinner =
-            Spinner(this)
+            AutoCompleteTextView(this).apply {
+
+                hint = "কেয়ার অফের নাম লিখুন"
+                textSize = 17f
+                setTextColor(darkText)
+                setHintTextColor(Color.rgb(140, 140, 140))
+                setSingleLine(true)
+                threshold = 2
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(
+                    dp(16),
+                    dp(10),
+                    dp(16),
+                    dp(10)
+                )
+                background = roundedCardDrawable(
+                    Color.WHITE,
+                    dp(12)
+                )
+                setDropDownVerticalOffset(dp(4))
+            }
 
         addSerialCareOfSpinner =
             careSpinner
@@ -1832,37 +1881,53 @@ class MainActivity : AppCompatActivity() {
             }
 
         // =====================================================
-        // CARE OF CHANGE
+        // CARE OF SEARCH / CHANGE
         // =====================================================
 
-        careSpinner.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
+        careSpinner.setOnItemClickListener { parent, _, position, _ ->
 
-                override fun onNothingSelected(
-                    parent: AdapterView<*>?
+            val selected =
+                parent.getItemAtPosition(position) as? CareOfOption
+                    ?: return@setOnItemClickListener
+
+            selectedCareOfId = selected.id
+            selectedCareOfName = selected.name
+            selectedCareOfAddress = selected.address
+        }
+
+        careSpinner.addTextChangedListener(
+            object : TextWatcher {
+
+                override fun beforeTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int
                 ) {
                 }
 
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
+                override fun onTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int
                 ) {
 
-                    if (
-                        position >= 0 &&
-                        position < careOfIds.size
-                    ) {
+                    val text = s?.toString()?.trim().orEmpty()
 
-                        selectedCareOfId =
-                            careOfIds[position]
-
-                        selectedCareOfName =
-                            careOfNames[position]
+                    if (text.length < 2) {
+                        selectedCareOfId = ""
+                        selectedCareOfName = ""
+                        selectedCareOfAddress = ""
                     }
                 }
+
+                override fun afterTextChanged(
+                    s: Editable?
+                ) {
+                }
             }
+        )
 
         // =====================================================
         // PLUS CARE OF
@@ -2013,7 +2078,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadCareOfForAddSerial() {
 
-        val spinner =
+        val input =
             addSerialCareOfSpinner
                 ?: return
 
@@ -2027,46 +2092,99 @@ class MainActivity : AppCompatActivity() {
 
                 careOfIds.clear()
                 careOfNames.clear()
-
-                // প্রথম option optional
-                careOfIds.add("")
-                careOfNames.add(
-                    "কেয়ার অফ নির্বাচন করুন"
-                )
+                careOfAddresses.clear()
+                careOfOptions.clear()
 
                 val sorted =
                     result.documents.sortedBy {
-
-                        (
-                            it.getString("name")
-                                ?: ""
-                        ).lowercase()
+                        (it.getString("name") ?: "").lowercase()
                     }
 
                 for (doc in sorted) {
 
-                    careOfIds.add(
-                        doc.id
-                    )
+                    val name =
+                        doc.getString("name") ?: "Unknown"
 
-                    careOfNames.add(
-                        doc.getString("name")
-                            ?: "Unknown"
+                    val address =
+                        doc.getString("address") ?: ""
+
+                    careOfIds.add(doc.id)
+                    careOfNames.add(name)
+                    careOfAddresses.add(address)
+                    careOfOptions.add(
+                        CareOfOption(
+                            doc.id,
+                            name,
+                            address
+                        )
                     )
                 }
 
                 selectedCareOfId = ""
                 selectedCareOfName = ""
+                selectedCareOfAddress = ""
 
                 val adapter =
-                    ArrayAdapter(
+                    object : ArrayAdapter<CareOfOption>(
                         this,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        careOfNames
-                    )
+                        android.R.layout.simple_list_item_1,
+                        careOfOptions
+                    ) {
 
-                spinner.adapter =
-                    adapter
+                        override fun getView(
+                            position: Int,
+                            convertView: View?,
+                            parent: android.view.ViewGroup
+                        ): View {
+
+                            val view =
+                                super.getView(
+                                    position,
+                                    convertView,
+                                    parent
+                                ) as TextView
+
+                            val option =
+                                getItem(position)
+
+                            view.text =
+                                if (option?.address.isNullOrBlank()) {
+                                    option?.name ?: ""
+                                } else {
+                                    "${option?.name}\n${option?.address}"
+                                }
+
+                            view.setSingleLine(false)
+                            view.maxLines = 3
+                            view.setPadding(
+                                dp(16),
+                                dp(10),
+                                dp(16),
+                                dp(10)
+                            )
+                            view.textSize = 16f
+
+                            return view
+                        }
+                    }
+
+                input.setAdapter(adapter)
+
+                input.setOnItemClickListener { parent, _, position, _ ->
+
+                    val selected =
+                        parent.getItemAtPosition(position) as? CareOfOption
+                            ?: return@setOnItemClickListener
+
+                    selectedCareOfId = selected.id
+                    selectedCareOfName = selected.name
+                    selectedCareOfAddress = selected.address
+
+                    input.setText(
+                        selected.toString(),
+                        false
+                    )
+                }
             }
             .addOnFailureListener { error ->
 
@@ -2464,6 +2582,9 @@ class MainActivity : AppCompatActivity() {
                     "careOfName" to
                             selectedCareOfName,
 
+                    "careOfAddress" to
+                            selectedCareOfAddress,
+
                     "createdDate" to date,
 
                     "description" to
@@ -2544,6 +2665,10 @@ class MainActivity : AppCompatActivity() {
             selectedAttachmentBase64 = null
             selectedAttachmentName = ""
             selectedAttachmentMimeType = ""
+            selectedCareOfId = ""
+            selectedCareOfName = ""
+            selectedCareOfAddress = ""
+            addSerialCareOfSpinner?.setText("", false)
 
             addSerialAttachmentText?.text =
                 "কোনো ছবি নির্বাচন করা হয়নি"
@@ -5029,6 +5154,11 @@ class MainActivity : AppCompatActivity() {
                 )
                 ?: "-"
 
+        val careOfAddress =
+            document.getString(
+                "careOfAddress"
+            ) ?: ""
+
         val doctor =
             document.getString(
                 "doctorName"
@@ -5109,10 +5239,17 @@ class MainActivity : AppCompatActivity() {
 
         if (careOf != "-") {
 
+            val careText =
+                if (careOfAddress.isBlank()) {
+                    careOf
+                } else {
+                    "$careOf\n$careOfAddress"
+                }
+
             card.addView(
                 createInfoText(
                     "👤 Care Of",
-                    careOf
+                    careText
                 )
             )
         }
