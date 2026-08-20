@@ -2,11 +2,17 @@ package com.moondiagnosticcenter.app
 
 import android.app.DatePickerDialog
 import android.content.DialogInterface
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.text.InputType
+import android.util.Base64
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -17,8 +23,12 @@ import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -42,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private var serialParentScreen = "dashboard"
 
     companion object {
+
         private const val SCREEN_LOGIN = "login"
         private const val SCREEN_DASHBOARD = "dashboard"
         private const val SCREEN_DOCTOR_LIST = "doctor_list"
@@ -51,6 +62,13 @@ class MainActivity : AppCompatActivity() {
         private const val SCREEN_CAREOF_SERIAL = "careof_serial"
         private const val SCREEN_ADD_DOCTOR = "add_doctor"
         private const val SCREEN_ADD_CAREOF = "add_careof"
+        private const val SCREEN_ADD_SERIAL = "add_serial"
+
+        private const val REQUEST_GALLERY = 501
+        private const val REQUEST_CAMERA = 502
+
+        private const val MAX_IMAGE_WIDTH = 900
+        private const val MAX_IMAGE_HEIGHT = 900
     }
 
     // =========================================================
@@ -76,6 +94,41 @@ class MainActivity : AppCompatActivity() {
     private val reportsColor = Color.rgb(251, 233, 231)
 
     // =========================================================
+    // ADD SERIAL TEMPORARY DATA
+    // =========================================================
+
+    private var selectedAttachmentBase64: String? = null
+    private var selectedAttachmentName: String = ""
+    private var selectedAttachmentMimeType: String = ""
+
+    private var addSerialPatientInput: EditText? = null
+    private var addSerialDoctorSpinner: Spinner? = null
+    private var addSerialCareOfSpinner: Spinner? = null
+    private var addSerialDateText: TextView? = null
+    private var addSerialNumberText: TextView? = null
+    private var addSerialStarCheck: CheckBox? = null
+    private var addSerialDescriptionInput: EditText? = null
+    private var addSerialAttachmentText: TextView? = null
+
+    private val doctorIds = mutableListOf<String>()
+    private val doctorNames = mutableListOf<String>()
+
+    private val careOfIds = mutableListOf<String>()
+    private val careOfNames = mutableListOf<String>()
+
+    private var selectedDoctorId: String = ""
+    private var selectedDoctorName: String = ""
+
+    private var selectedCareOfId: String = ""
+    private var selectedCareOfName: String = ""
+
+    private var selectedSerialDate: String =
+        SimpleDateFormat(
+            "yyyy-MM-dd",
+            Locale.getDefault()
+        ).format(Calendar.getInstance().time)
+
+    // =========================================================
     // ON CREATE
     // =========================================================
 
@@ -96,7 +149,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // ANDROID BACK BUTTON
+    // BACK BUTTON
     // =========================================================
 
     private fun setupBackButton() {
@@ -107,14 +160,11 @@ class MainActivity : AppCompatActivity() {
 
                 override fun handleOnBackPressed() {
 
-                    // Drawer open থাকলে আগে Drawer বন্ধ হবে
                     if (
                         ::drawerLayout.isInitialized &&
                         drawerLayout.isDrawerOpen(Gravity.START)
                     ) {
-
                         drawerLayout.closeDrawer(Gravity.START)
-
                         return
                     }
 
@@ -168,6 +218,10 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         SCREEN_ADD_CAREOF -> {
+                            showDashboard(currentRole)
+                        }
+
+                        SCREEN_ADD_SERIAL -> {
                             showDashboard(currentRole)
                         }
 
@@ -422,7 +476,6 @@ class MainActivity : AppCompatActivity() {
                 passwordText
             )
                 .addOnSuccessListener {
-
                     checkUserAccess()
                 }
                 .addOnFailureListener { error ->
@@ -440,9 +493,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(logo)
-
         root.addView(title)
-
         root.addView(loginTitle)
 
         root.addView(
@@ -497,9 +548,7 @@ class MainActivity : AppCompatActivity() {
         val user = auth.currentUser
 
         if (user == null) {
-
             showLogin()
-
             return
         }
 
@@ -519,7 +568,6 @@ class MainActivity : AppCompatActivity() {
                     ).show()
 
                     showLogin()
-
                     return@addOnSuccessListener
                 }
 
@@ -542,7 +590,6 @@ class MainActivity : AppCompatActivity() {
                     ).show()
 
                     showLogin()
-
                     return@addOnSuccessListener
                 }
 
@@ -579,7 +626,6 @@ class MainActivity : AppCompatActivity() {
 
         drawerLayout =
             DrawerLayout(this).apply {
-
                 setBackgroundColor(
                     backgroundColor
                 )
@@ -595,10 +641,6 @@ class MainActivity : AppCompatActivity() {
                     backgroundColor
                 )
             }
-
-        // =====================================================
-        // TOP BAR
-        // =====================================================
 
         val topBar =
             LinearLayout(this).apply {
@@ -721,10 +763,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // =====================================================
-        // SCROLL
-        // =====================================================
-
         val scrollView =
             ScrollView(this).apply {
                 isFillViewport = true
@@ -768,10 +806,6 @@ class MainActivity : AppCompatActivity() {
 
         content.addView(welcome)
 
-        // =====================================================
-        // ROW 1
-        // =====================================================
-
         val row1 =
             LinearLayout(this).apply {
                 orientation =
@@ -804,10 +838,6 @@ class MainActivity : AppCompatActivity() {
 
         content.addView(row1)
 
-        // =====================================================
-        // ROW 2
-        // =====================================================
-
         val row2 =
             LinearLayout(this).apply {
                 orientation =
@@ -839,10 +869,6 @@ class MainActivity : AppCompatActivity() {
         )
 
         content.addView(row2)
-
-        // =====================================================
-        // SUMMARY
-        // =====================================================
 
         val summaryTitle =
             TextView(this).apply {
@@ -907,10 +933,6 @@ class MainActivity : AppCompatActivity() {
         )
 
         content.addView(summaryRow)
-
-        // =====================================================
-        // QUICK ACCESS
-        // =====================================================
 
         val quickTitle =
             TextView(this).apply {
@@ -1011,10 +1033,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // =====================================================
-        // DRAWER
-        // =====================================================
-
         drawerLayout.addView(
             mainLayout,
             DrawerLayout.LayoutParams(
@@ -1055,39 +1073,24 @@ class MainActivity : AppCompatActivity() {
         setContentView(drawerLayout)
 
         menuButton.setOnClickListener {
-
             drawerLayout.openDrawer(
                 Gravity.START
             )
         }
-
-        // =====================================================
-        // BUTTON ACTIONS
-        // =====================================================
 
         totalSerial.setOnClickListener {
             showTotalSerial()
         }
 
         addSerial.setOnClickListener {
-
-            Toast.makeText(
-                this,
-                "Add Serial",
-                Toast.LENGTH_SHORT
-            ).show()
+            showAddSerial()
         }
 
         addDoctor.setOnClickListener {
 
-            if (
-                role.lowercase() == "admin"
-            ) {
-
+            if (role.lowercase() == "admin") {
                 showAddDoctor()
-
             } else {
-
                 Toast.makeText(
                     this,
                     "শুধুমাত্র Admin Doctor যোগ করতে পারবেন",
@@ -1098,14 +1101,9 @@ class MainActivity : AppCompatActivity() {
 
         addCareOf.setOnClickListener {
 
-            if (
-                role.lowercase() == "admin"
-            ) {
-
+            if (role.lowercase() == "admin") {
                 showAddCareOf()
-
             } else {
-
                 Toast.makeText(
                     this,
                     "শুধুমাত্র Admin Care Of যোগ করতে পারবেন",
@@ -1129,6 +1127,1827 @@ class MainActivity : AppCompatActivity() {
         reports.setOnClickListener {
             showTotalSerial()
         }
+    }
+
+    // =========================================================
+    // ADD SERIAL
+    // =========================================================
+
+    private fun showAddSerial() {
+
+        currentScreen = SCREEN_ADD_SERIAL
+
+        setupSystemBars()
+
+        selectedAttachmentBase64 = null
+        selectedAttachmentName = ""
+        selectedAttachmentMimeType = ""
+
+        doctorIds.clear()
+        doctorNames.clear()
+
+        careOfIds.clear()
+        careOfNames.clear()
+
+        selectedDoctorId = ""
+        selectedDoctorName = ""
+
+        selectedCareOfId = ""
+        selectedCareOfName = ""
+
+        selectedSerialDate =
+            SimpleDateFormat(
+                "yyyy-MM-dd",
+                Locale.getDefault()
+            ).format(
+                Calendar.getInstance().time
+            )
+
+        val root =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setBackgroundColor(
+                    backgroundColor
+                )
+            }
+
+        root.addView(
+            createInnerTopBar(
+                "Add Serial"
+            ) {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll =
+            ScrollView(this).apply {
+                isFillViewport = true
+            }
+
+        val content =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(18),
+                    dp(20),
+                    dp(35)
+                )
+            }
+
+        val heading =
+            TextView(this).apply {
+
+                text =
+                    "নতুন রোগীর Serial যোগ করুন"
+
+                textSize = 24f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                setTextColor(
+                    darkText
+                )
+
+                setPadding(
+                    dp(5),
+                    dp(5),
+                    dp(5),
+                    dp(18)
+                )
+            }
+
+        content.addView(heading)
+
+        // =====================================================
+        // PATIENT NAME + STAR
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "রোগীর নাম *"
+        )
+
+        val patientRow =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        val patientInput =
+            createFormInput(
+                "রোগীর নাম লিখুন"
+            )
+
+        patientInput.textSize = 18f
+
+        addSerialPatientInput =
+            patientInput
+
+        patientRow.addView(
+            patientInput,
+            LinearLayout.LayoutParams(
+                0,
+                dp(62),
+                1f
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    dp(8),
+                    dp(14)
+                )
+            }
+        )
+
+        val starCheck =
+            CheckBox(this).apply {
+
+                text = "⭐"
+
+                textSize = 28f
+
+                gravity =
+                    Gravity.CENTER
+
+                buttonDrawable =
+                    null
+
+                setPadding(
+                    dp(8),
+                    0,
+                    dp(8),
+                    0
+                )
+
+                contentDescription =
+                    "VIP Patient"
+            }
+
+        addSerialStarCheck =
+            starCheck
+
+        val starContainer =
+            LinearLayout(this).apply {
+
+                gravity =
+                    Gravity.CENTER
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(14)
+                    )
+
+                elevation =
+                    dp(2).toFloat()
+            }
+
+        starContainer.addView(
+            starCheck,
+            LinearLayout.LayoutParams(
+                dp(70),
+                dp(62)
+            )
+        )
+
+        patientRow.addView(
+            starContainer,
+            LinearLayout.LayoutParams(
+                dp(72),
+                dp(62)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        content.addView(patientRow)
+
+        // =====================================================
+        // DOCTOR
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "ডাক্তার নির্বাচন করুন *"
+        )
+
+        val doctorRow =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        val doctorSpinner =
+            Spinner(this)
+
+        addSerialDoctorSpinner =
+            doctorSpinner
+
+        doctorRow.addView(
+            doctorSpinner,
+            LinearLayout.LayoutParams(
+                0,
+                dp(60),
+                1f
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        content.addView(doctorRow)
+
+        // =====================================================
+        // CARE OF + PLUS
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "কেয়ার অফ"
+        )
+
+        val careRow =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        val careSpinner =
+            Spinner(this)
+
+        addSerialCareOfSpinner =
+            careSpinner
+
+        careRow.addView(
+            careSpinner,
+            LinearLayout.LayoutParams(
+                0,
+                dp(60),
+                1f
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    dp(8),
+                    dp(14)
+                )
+            }
+        )
+
+        val plusButton =
+            Button(this).apply {
+
+                text = "＋"
+
+                textSize = 30f
+
+                setAllCaps(false)
+
+                setTextColor(
+                    primaryColor
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(14)
+                    )
+
+                contentDescription =
+                    "Add Care Of"
+            }
+
+        careRow.addView(
+            plusButton,
+            LinearLayout.LayoutParams(
+                dp(70),
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        content.addView(careRow)
+
+        // =====================================================
+        // SERIAL NUMBER
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "সিরিয়াল নম্বর"
+        )
+
+        val serialNumber =
+            TextView(this).apply {
+
+                text =
+                    "ডাক্তার ও তারিখ নির্বাচন করুন"
+
+                textSize = 21f
+
+                typeface =
+                    Typeface.DEFAULT_BOLD
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+
+                setTextColor(
+                    primaryColor
+                )
+
+                setPadding(
+                    dp(18),
+                    0,
+                    dp(18),
+                    0
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(12)
+                    )
+            }
+
+        addSerialNumberText =
+            serialNumber
+
+        content.addView(
+            serialNumber,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        // =====================================================
+        // DATE
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "তারিখ নির্বাচন করুন *"
+        )
+
+        val dateButton =
+            Button(this).apply {
+
+                text =
+                    formatDisplayDate(
+                        selectedSerialDate
+                    )
+
+                textSize = 18f
+
+                setAllCaps(false)
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+
+                setTextColor(
+                    darkText
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(12)
+                    )
+
+                setPadding(
+                    dp(16),
+                    0,
+                    dp(16),
+                    0
+                )
+            }
+
+        addSerialDateText =
+            dateButton
+
+        content.addView(
+            dateButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        // =====================================================
+        // DESCRIPTION
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "বিবরণ — Optional"
+        )
+
+        val description =
+            createFormInput(
+                "রোগী সম্পর্কে বিবরণ লিখুন"
+            )
+
+        description.setSingleLine(false)
+        description.minLines = 5
+        description.gravity = Gravity.TOP
+
+        addSerialDescriptionInput =
+            description
+
+        content.addView(
+            description,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(125)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        // =====================================================
+        // ATTACHMENT
+        // =====================================================
+
+        addFormLabel(
+            content,
+            "ডকুমেন্ট / ছবি — Optional"
+        )
+
+        val attachmentRow =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.HORIZONTAL
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+            }
+
+        val attachmentText =
+            TextView(this).apply {
+
+                text =
+                    "কোনো ছবি নির্বাচন করা হয়নি"
+
+                textSize = 15f
+
+                setTextColor(
+                    lightText
+                )
+
+                gravity =
+                    Gravity.CENTER_VERTICAL
+
+                setPadding(
+                    dp(12),
+                    0,
+                    dp(8),
+                    0
+                )
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(12)
+                    )
+            }
+
+        addSerialAttachmentText =
+            attachmentText
+
+        attachmentRow.addView(
+            attachmentText,
+            LinearLayout.LayoutParams(
+                0,
+                dp(60),
+                1f
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    dp(8),
+                    dp(14)
+                )
+            }
+        )
+
+        val cameraButton =
+            Button(this).apply {
+
+                text = "📷"
+
+                textSize = 24f
+
+                setAllCaps(false)
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(12)
+                    )
+            }
+
+        attachmentRow.addView(
+            cameraButton,
+            LinearLayout.LayoutParams(
+                dp(65),
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    dp(5),
+                    dp(14)
+                )
+            }
+        )
+
+        val galleryButton =
+            Button(this).apply {
+
+                text = "📎"
+
+                textSize = 24f
+
+                setAllCaps(false)
+
+                background =
+                    roundedCardDrawable(
+                        Color.WHITE,
+                        dp(12)
+                    )
+            }
+
+        attachmentRow.addView(
+            galleryButton,
+            LinearLayout.LayoutParams(
+                dp(65),
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(14)
+                )
+            }
+        )
+
+        content.addView(attachmentRow)
+
+        // =====================================================
+        // STATUS
+        // =====================================================
+
+        val status =
+            createStatusText()
+
+        content.addView(status)
+
+        // =====================================================
+        // ADD SERIAL BUTTON
+        // =====================================================
+
+        val saveButton =
+            createPrimaryButton(
+                "সিরিয়াল যোগ করুন"
+            )
+
+        content.addView(
+            saveButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(62)
+            )
+        )
+
+        // =====================================================
+        // LOAD DOCTORS
+        // =====================================================
+
+        loadDoctorsForAddSerial()
+
+        // =====================================================
+        // LOAD CARE OF
+        // =====================================================
+
+        loadCareOfForAddSerial()
+
+        // =====================================================
+        // DATE CLICK
+        // =====================================================
+
+        dateButton.setOnClickListener {
+
+            showAddSerialDatePicker()
+        }
+
+        // =====================================================
+        // DOCTOR CHANGE
+        // =====================================================
+
+        doctorSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+
+                override fun onNothingSelected(
+                    parent: AdapterView<*>?
+                ) {
+                }
+
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+
+                    if (
+                        position >= 0 &&
+                        position < doctorIds.size
+                    ) {
+
+                        selectedDoctorId =
+                            doctorIds[position]
+
+                        selectedDoctorName =
+                            doctorNames[position]
+
+                        updateNextSerialPreview()
+                    }
+                }
+            }
+
+        // =====================================================
+        // CARE OF CHANGE
+        // =====================================================
+
+        careSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+
+                override fun onNothingSelected(
+                    parent: AdapterView<*>?
+                ) {
+                }
+
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+
+                    if (
+                        position >= 0 &&
+                        position < careOfIds.size
+                    ) {
+
+                        selectedCareOfId =
+                            careOfIds[position]
+
+                        selectedCareOfName =
+                            careOfNames[position]
+                    }
+                }
+            }
+
+        // =====================================================
+        // PLUS CARE OF
+        // =====================================================
+
+        plusButton.setOnClickListener {
+
+            showQuickAddCareOfDialog {
+                loadCareOfForAddSerial()
+            }
+        }
+
+        // =====================================================
+        // CAMERA
+        // =====================================================
+
+        cameraButton.setOnClickListener {
+
+            openCamera()
+        }
+
+        // =====================================================
+        // GALLERY
+        // =====================================================
+
+        galleryButton.setOnClickListener {
+
+            openGallery()
+        }
+
+        // =====================================================
+        // SAVE SERIAL
+        // =====================================================
+
+        saveButton.setOnClickListener {
+
+            saveNewSerial(
+                patientInput,
+                starCheck,
+                description,
+                saveButton,
+                status
+            )
+        }
+
+        scroll.addView(content)
+
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+
+        setContentView(root)
+    }
+
+    // =========================================================
+    // LOAD DOCTORS FOR ADD SERIAL
+    // =========================================================
+
+    private fun loadDoctorsForAddSerial() {
+
+        val spinner =
+            addSerialDoctorSpinner
+                ?: return
+
+        db.collection("doctors")
+            .whereEqualTo(
+                "active",
+                true
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                doctorIds.clear()
+                doctorNames.clear()
+
+                val sorted =
+                    result.documents.sortedBy {
+
+                        (
+                            it.getString("name")
+                                ?: ""
+                        ).lowercase()
+                    }
+
+                for (doc in sorted) {
+
+                    doctorIds.add(
+                        doc.id
+                    )
+
+                    doctorNames.add(
+                        doc.getString("name")
+                            ?: "Unknown"
+                    )
+                }
+
+                if (doctorNames.isEmpty()) {
+
+                    doctorNames.add(
+                        "কোনো Doctor পাওয়া যায়নি"
+                    )
+
+                    doctorIds.add("")
+
+                } else {
+
+                    selectedDoctorId =
+                        doctorIds.first()
+
+                    selectedDoctorName =
+                        doctorNames.first()
+                }
+
+                val adapter =
+                    ArrayAdapter(
+                        this,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        doctorNames
+                    )
+
+                spinner.adapter =
+                    adapter
+
+                if (doctorIds.firstOrNull()
+                        ?.isNotEmpty() == true
+                ) {
+                    updateNextSerialPreview()
+                }
+            }
+            .addOnFailureListener { error ->
+
+                Toast.makeText(
+                    this,
+                    "Doctor List পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // LOAD CARE OF
+    // =========================================================
+
+    private fun loadCareOfForAddSerial() {
+
+        val spinner =
+            addSerialCareOfSpinner
+                ?: return
+
+        db.collection("careOf")
+            .whereEqualTo(
+                "active",
+                true
+            )
+            .get()
+            .addOnSuccessListener { result ->
+
+                careOfIds.clear()
+                careOfNames.clear()
+
+                // প্রথম option optional
+                careOfIds.add("")
+                careOfNames.add(
+                    "কেয়ার অফ নির্বাচন করুন"
+                )
+
+                val sorted =
+                    result.documents.sortedBy {
+
+                        (
+                            it.getString("name")
+                                ?: ""
+                        ).lowercase()
+                    }
+
+                for (doc in sorted) {
+
+                    careOfIds.add(
+                        doc.id
+                    )
+
+                    careOfNames.add(
+                        doc.getString("name")
+                            ?: "Unknown"
+                    )
+                }
+
+                selectedCareOfId = ""
+                selectedCareOfName = ""
+
+                val adapter =
+                    ArrayAdapter(
+                        this,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        careOfNames
+                    )
+
+                spinner.adapter =
+                    adapter
+            }
+            .addOnFailureListener { error ->
+
+                Toast.makeText(
+                    this,
+                    "Care Of List পাওয়া যায়নি: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    // =========================================================
+    // QUICK ADD CARE OF
+    // =========================================================
+
+    private fun showQuickAddCareOfDialog(
+        onSaved: () -> Unit
+    ) {
+
+        val container =
+            LinearLayout(this).apply {
+
+                orientation =
+                    LinearLayout.VERTICAL
+
+                setPadding(
+                    dp(20),
+                    dp(5),
+                    dp(20),
+                    0
+                )
+            }
+
+        val name =
+            createFormInput(
+                "Care Of Name"
+            )
+
+        val address =
+            createFormInput(
+                "Address / ঠিকানা"
+            )
+
+        address.setSingleLine(false)
+        address.minLines = 3
+        address.gravity = Gravity.TOP
+
+        container.addView(
+            name,
+            formParams()
+        )
+
+        container.addView(
+            address,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(90)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    0,
+                    dp(10)
+                )
+            }
+        )
+
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle(
+                    "＋ নতুন Care Of যোগ করুন"
+                )
+                .setView(container)
+                .setNegativeButton(
+                    "Cancel",
+                    null
+                )
+                .setPositiveButton(
+                    "Save",
+                    null
+                )
+                .create()
+
+        dialog.setOnShowListener {
+
+            dialog.getButton(
+                AlertDialog.BUTTON_POSITIVE
+            ).setOnClickListener {
+
+                val careName =
+                    name.text.toString().trim()
+
+                val careAddress =
+                    address.text.toString().trim()
+
+                if (careName.isEmpty()) {
+
+                    name.error =
+                        "Care Of নাম দিন"
+
+                    return@setOnClickListener
+                }
+
+                val saveButton =
+                    dialog.getButton(
+                        AlertDialog.BUTTON_POSITIVE
+                    )
+
+                saveButton.isEnabled = false
+
+                val data =
+                    hashMapOf(
+                        "name" to careName,
+                        "address" to careAddress,
+                        "active" to true,
+                        "createdByUid" to
+                                (
+                                    auth.currentUser?.uid
+                                        ?: ""
+                                ),
+                        "createdAt" to
+                                FieldValue.serverTimestamp()
+                    )
+
+                db.collection("careOf")
+                    .add(data)
+                    .addOnSuccessListener {
+
+                        Toast.makeText(
+                            this,
+                            "Care Of সফলভাবে যোগ হয়েছে",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        dialog.dismiss()
+
+                        onSaved()
+                    }
+                    .addOnFailureListener { error ->
+
+                        saveButton.isEnabled = true
+
+                        Toast.makeText(
+                            this,
+                            "Care Of যোগ করা যায়নি: ${error.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+        }
+
+        dialog.show()
+    }
+
+    // =========================================================
+    // DATE PICKER FOR ADD SERIAL
+    // =========================================================
+
+    private fun showAddSerialDatePicker() {
+
+        val calendar =
+            Calendar.getInstance()
+
+        try {
+
+            val parsed =
+                SimpleDateFormat(
+                    "yyyy-MM-dd",
+                    Locale.getDefault()
+                ).parse(
+                    selectedSerialDate
+                )
+
+            if (parsed != null) {
+                calendar.time = parsed
+            }
+
+        } catch (_: Exception) {
+        }
+
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+
+                val selected =
+                    Calendar.getInstance()
+
+                selected.set(
+                    year,
+                    month,
+                    day
+                )
+
+                selectedSerialDate =
+                    SimpleDateFormat(
+                        "yyyy-MM-dd",
+                        Locale.getDefault()
+                    ).format(
+                        selected.time
+                    )
+
+                addSerialDateText?.text =
+                    formatDisplayDate(
+                        selectedSerialDate
+                    )
+
+                updateNextSerialPreview()
+            },
+            calendar.get(
+                Calendar.YEAR
+            ),
+            calendar.get(
+                Calendar.MONTH
+            ),
+            calendar.get(
+                Calendar.DAY_OF_MONTH
+            )
+        ).apply {
+
+            setTitle(
+                "তারিখ নির্বাচন করুন"
+            )
+
+            show()
+        }
+    }
+
+    // =========================================================
+    // SERIAL PREVIEW
+    // =========================================================
+
+    private fun updateNextSerialPreview() {
+
+        val doctorId =
+            selectedDoctorId
+
+        if (doctorId.isEmpty()) {
+
+            addSerialNumberText?.text =
+                "Doctor নির্বাচন করুন"
+
+            return
+        }
+
+        val counterId =
+            makeCounterId(
+                selectedSerialDate,
+                doctorId
+            )
+
+        db.collection("serialCounters")
+            .document(counterId)
+            .get()
+            .addOnSuccessListener { document ->
+
+                val lastNumber =
+                    document.getLong(
+                        "lastNumber"
+                    ) ?: 0L
+
+                val next =
+                    lastNumber + 1L
+
+                addSerialNumberText?.text =
+                    "পরবর্তী Serial: $next"
+            }
+            .addOnFailureListener {
+
+                addSerialNumberText?.text =
+                    "পরবর্তী Serial: 1"
+            }
+    }
+
+    // =========================================================
+    // SAVE NEW SERIAL
+    // =========================================================
+
+    private fun saveNewSerial(
+        patientInput: EditText,
+        starCheck: CheckBox,
+        description: EditText,
+        saveButton: Button,
+        statusText: TextView
+    ) {
+
+        val patient =
+            patientInput.text.toString().trim()
+
+        if (patient.isEmpty()) {
+
+            patientInput.error =
+                "রোগীর নাম দিন"
+
+            patientInput.requestFocus()
+
+            return
+        }
+
+        if (selectedDoctorId.isEmpty()) {
+
+            Toast.makeText(
+                this,
+                "প্রথমে Doctor নির্বাচন করুন",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return
+        }
+
+        val doctorId =
+            selectedDoctorId
+
+        val doctorName =
+            selectedDoctorName
+
+        val date =
+            selectedSerialDate
+
+        saveButton.isEnabled = false
+
+        statusText.text =
+            "Serial তৈরি হচ্ছে..."
+
+        // =====================================================
+        // IMPORTANT
+        //
+        // Date + Doctor অনুযায়ী unique counter document.
+        //
+        // Firestore transaction ব্যবহার করার কারণে
+        // একই সময়ে একাধিক user Serial নিলেও duplicate
+        // number তৈরি হবে না।
+        // =====================================================
+
+        val counterId =
+            makeCounterId(
+                date,
+                doctorId
+            )
+
+        val counterRef =
+            db.collection(
+                "serialCounters"
+            ).document(counterId)
+
+        val serialRef =
+            db.collection(
+                "serials"
+            ).document()
+
+        db.runTransaction { transaction ->
+
+            val counterSnapshot =
+                transaction.get(
+                    counterRef
+                )
+
+            val lastNumber =
+                counterSnapshot.getLong(
+                    "lastNumber"
+                ) ?: 0L
+
+            val nextNumber =
+                lastNumber + 1L
+
+            val counterData =
+                hashMapOf<String, Any>(
+                    "date" to date,
+                    "doctorId" to doctorId,
+                    "doctorName" to doctorName,
+                    "lastNumber" to nextNumber,
+                    "updatedAt" to
+                            FieldValue.serverTimestamp()
+                )
+
+            transaction.set(
+                counterRef,
+                counterData,
+                SetOptions.merge()
+            )
+
+            val serialData =
+                hashMapOf<String, Any>(
+                    "number" to nextNumber,
+                    "patient" to patient,
+
+                    "patientVip" to
+                            starCheck.isChecked,
+
+                    "doctorId" to doctorId,
+                    "doctorName" to doctorName,
+
+                    "careOfId" to
+                            selectedCareOfId,
+
+                    "careOfName" to
+                            selectedCareOfName,
+
+                    "createdDate" to date,
+
+                    "description" to
+                            description.text.toString().trim(),
+
+                    "status" to "Waiting",
+
+                    "createdByUid" to
+                            (
+                                auth.currentUser?.uid
+                                    ?: ""
+                            ),
+
+                    "createdByName" to
+                            (
+                                auth.currentUser?.email
+                                    ?: ""
+                            ),
+
+                    "createdByRole" to
+                            currentRole,
+
+                    "createdAt" to
+                            FieldValue.serverTimestamp()
+                )
+
+            if (
+                !selectedAttachmentBase64.isNullOrEmpty()
+            ) {
+
+                serialData["attachmentBase64"] =
+                    selectedAttachmentBase64 ?: ""
+
+                serialData["attachmentName"] =
+                    selectedAttachmentName
+
+                serialData["attachmentMimeType"] =
+                    selectedAttachmentMimeType
+
+                serialData["hasAttachment"] =
+                    true
+
+            } else {
+
+                serialData["attachmentMimeType"] =
+                    ""
+
+                serialData["hasAttachment"] =
+                    false
+            }
+
+            transaction.set(
+                serialRef,
+                serialData
+            )
+
+            nextNumber
+
+        }.addOnSuccessListener { number ->
+
+            saveButton.isEnabled = true
+
+            statusText.text =
+                "Serial #$number সফলভাবে যোগ হয়েছে ✓"
+
+            Toast.makeText(
+                this,
+                "Serial #$number সফলভাবে যোগ হয়েছে",
+                Toast.LENGTH_LONG
+            ).show()
+
+            patientInput.text.clear()
+
+            starCheck.isChecked = false
+
+            description.text.clear()
+
+            selectedAttachmentBase64 = null
+            selectedAttachmentName = ""
+            selectedAttachmentMimeType = ""
+
+            addSerialAttachmentText?.text =
+                "কোনো ছবি নির্বাচন করা হয়নি"
+
+            updateNextSerialPreview()
+
+        }.addOnFailureListener { error ->
+
+            saveButton.isEnabled = true
+
+            statusText.text = ""
+
+            Toast.makeText(
+                this,
+                "Serial তৈরি করা যায়নি: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // =========================================================
+    // COUNTER ID
+    // =========================================================
+
+    private fun makeCounterId(
+        date: String,
+        doctorId: String
+    ): String {
+
+        return "${date}_${doctorId}"
+    }
+
+    // =========================================================
+    // DISPLAY DATE
+    // =========================================================
+
+    private fun formatDisplayDate(
+        date: String
+    ): String {
+
+        return try {
+
+            val parsed =
+                SimpleDateFormat(
+                    "yyyy-MM-dd",
+                    Locale.getDefault()
+                ).parse(date)
+
+            if (parsed != null) {
+
+                SimpleDateFormat(
+                    "dd-MM-yyyy",
+                    Locale.getDefault()
+                ).format(parsed)
+
+            } else {
+                date
+            }
+
+        } catch (_: Exception) {
+            date
+        }
+    }
+
+    // =========================================================
+    // GALLERY
+    // =========================================================
+
+    private fun openGallery() {
+
+        val intent =
+            Intent(
+                Intent.ACTION_OPEN_DOCUMENT
+            ).apply {
+
+                type = "*/*"
+
+                putExtra(
+                    Intent.EXTRA_MIME_TYPES,
+                    arrayOf(
+                        "image/*",
+                        "application/pdf"
+                    )
+                )
+
+                addCategory(
+                    Intent.CATEGORY_OPENABLE
+                )
+
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+
+        startActivityForResult(
+            Intent.createChooser(
+                intent,
+                "ছবি / PDF ডকুমেন্ট নির্বাচন করুন"
+            ),
+            REQUEST_GALLERY
+        )
+    }
+
+    // =========================================================
+    // CAMERA
+    // =========================================================
+
+    private fun openCamera() {
+
+        try {
+
+            val intent =
+                Intent(
+                    MediaStore.ACTION_IMAGE_CAPTURE
+                )
+
+            startActivityForResult(
+                intent,
+                REQUEST_CAMERA
+            )
+
+        } catch (error: Exception) {
+
+            Toast.makeText(
+                this,
+                "Camera চালু করা যায়নি",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // =========================================================
+    // ACTIVITY RESULT
+    // =========================================================
+
+    @Deprecated("Deprecated in Android API")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+
+        super.onActivityResult(
+            requestCode,
+            resultCode,
+            data
+        )
+
+        if (resultCode != RESULT_OK) {
+            return
+        }
+
+        when (requestCode) {
+
+            REQUEST_GALLERY -> {
+
+                val uri =
+                    data?.data
+
+                if (uri != null) {
+
+                    processSelectedAttachment(
+                        uri
+                    )
+                }
+            }
+
+            REQUEST_CAMERA -> {
+
+                val bitmap =
+                    data?.extras?.get(
+                        "data"
+                    ) as? Bitmap
+
+                if (bitmap != null) {
+
+                    processCameraBitmap(
+                        bitmap
+                    )
+                }
+            }
+        }
+    }
+
+    // =========================================================
+    // PROCESS GALLERY / DOCUMENT ATTACHMENT
+    // =========================================================
+
+    private fun processSelectedAttachment(
+        uri: Uri
+    ) {
+
+        try {
+
+            val mimeType =
+                contentResolver.getType(uri)
+                    ?: ""
+
+            if (mimeType.startsWith("image/")) {
+
+                val inputStream =
+                    contentResolver.openInputStream(
+                        uri
+                    )
+
+                val bitmap =
+                    BitmapFactory.decodeStream(
+                        inputStream
+                    )
+
+                inputStream?.close()
+
+                if (bitmap == null) {
+
+                    Toast.makeText(
+                        this,
+                        "ছবিটি পড়া যায়নি",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    return
+                }
+
+                selectedAttachmentBase64 =
+                    bitmapToBase64(
+                        bitmap
+                    )
+
+                selectedAttachmentName =
+                    "gallery_${System.currentTimeMillis()}.jpg"
+
+                selectedAttachmentMimeType =
+                    "image/jpeg"
+
+                addSerialAttachmentText?.text =
+                    "📎 ছবি সংযুক্ত হয়েছে"
+
+                return
+            }
+
+            if (mimeType == "application/pdf") {
+
+                val bytes =
+                    contentResolver.openInputStream(
+                        uri
+                    )?.use {
+                        it.readBytes()
+                    }
+
+                if (bytes == null || bytes.isEmpty()) {
+
+                    Toast.makeText(
+                        this,
+                        "ডকুমেন্টটি পড়া যায়নি",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    return
+                }
+
+                // Firestore document size is limited.
+                // Keep direct PDF attachments safely below that limit.
+                if (bytes.size > 500_000) {
+
+                    Toast.makeText(
+                        this,
+                        "PDF ফাইলটি খুব বড়। 500 KB-এর মধ্যে PDF দিন।",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    return
+                }
+
+                selectedAttachmentBase64 =
+                    Base64.encodeToString(
+                        bytes,
+                        Base64.NO_WRAP
+                    )
+
+                selectedAttachmentName =
+                    "document_${System.currentTimeMillis()}.pdf"
+
+                selectedAttachmentMimeType =
+                    "application/pdf"
+
+                addSerialAttachmentText?.text =
+                    "📎 PDF ডকুমেন্ট সংযুক্ত হয়েছে"
+
+                return
+            }
+
+            Toast.makeText(
+                this,
+                "শুধু ছবি অথবা PDF ডকুমেন্ট নির্বাচন করুন",
+                Toast.LENGTH_LONG
+            ).show()
+
+        } catch (error: Exception) {
+
+            Toast.makeText(
+                this,
+                "ডকুমেন্ট নির্বাচন করা যায়নি: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // =========================================================
+    // PROCESS CAMERA BITMAP
+    // =========================================================
+
+    private fun processCameraBitmap(
+        bitmap: Bitmap
+    ) {
+
+        try {
+
+            selectedAttachmentBase64 =
+                bitmapToBase64(
+                    bitmap
+                )
+
+            selectedAttachmentName =
+                "camera_${System.currentTimeMillis()}.jpg"
+
+            addSerialAttachmentText?.text =
+                "📷 Camera ছবি সংযুক্ত হয়েছে"
+
+        } catch (error: Exception) {
+
+            Toast.makeText(
+                this,
+                "Camera ছবি সংরক্ষণ করা যায়নি",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // =========================================================
+    // BITMAP TO BASE64
+    // =========================================================
+
+    private fun bitmapToBase64(
+        original: Bitmap
+    ): String {
+
+        val scaled =
+            scaleBitmap(
+                original,
+                MAX_IMAGE_WIDTH,
+                MAX_IMAGE_HEIGHT
+            )
+
+        val outputStream =
+            ByteArrayOutputStream()
+
+        scaled.compress(
+            Bitmap.CompressFormat.JPEG,
+            45,
+            outputStream
+        )
+
+        val bytes =
+            outputStream.toByteArray()
+
+        return Base64.encodeToString(
+            bytes,
+            Base64.NO_WRAP
+        )
+    }
+
+    // =========================================================
+    // SCALE BITMAP
+    // =========================================================
+
+    private fun scaleBitmap(
+        bitmap: Bitmap,
+        maxWidth: Int,
+        maxHeight: Int
+    ): Bitmap {
+
+        val width =
+            bitmap.width.toFloat()
+
+        val height =
+            bitmap.height.toFloat()
+
+        val ratio =
+            minOf(
+                maxWidth / width,
+                maxHeight / height,
+                1f
+            )
+
+        if (ratio >= 1f) {
+            return bitmap
+        }
+
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            (width * ratio).toInt(),
+            (height * ratio).toInt(),
+            true
+        )
     }
 
     // =========================================================
@@ -1497,12 +3316,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
-        // =====================================================
-        // IMPORTANT:
-        // orderBy বাদ দেওয়া হয়েছে।
-        // এতে Firestore composite index-এর সমস্যা হবে না।
-        // =====================================================
-
         db.collection("doctors")
             .whereEqualTo(
                 "active",
@@ -1650,7 +3463,6 @@ class MainActivity : AppCompatActivity() {
         card.addView(title)
 
         if (qualification.isNotEmpty()) {
-
             card.addView(
                 createInfoText(
                     "🎓 Qualification",
@@ -1660,7 +3472,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (specialty.isNotEmpty()) {
-
             card.addView(
                 createInfoText(
                     "🩺 Specialty",
@@ -1670,7 +3481,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (visitingTime.isNotEmpty()) {
-
             card.addView(
                 createInfoText(
                     "🕐 Visiting",
@@ -1680,7 +3490,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (mobile.isNotEmpty()) {
-
             card.addView(
                 createInfoText(
                     "📱 Mobile",
@@ -1688,10 +3497,6 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
-
-        // =====================================================
-        // ADMIN EDIT / DELETE
-        // =====================================================
 
         if (currentRole == "admin") {
 
@@ -1737,13 +3542,8 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            buttonRow.addView(
-                editButton
-            )
-
-            buttonRow.addView(
-                deleteButton
-            )
+            buttonRow.addView(editButton)
+            buttonRow.addView(deleteButton)
 
             card.addView(buttonRow)
         }
@@ -2042,7 +3842,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // DOCTOR DATE SELECTION
+    // DOCTOR DATE
     // =========================================================
 
     private fun showDoctorDateSelection(
@@ -2100,7 +3900,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // DOCTOR SERIALS
+    // DOCTOR SERIAL
     // =========================================================
 
     private fun showDoctorSerials(
@@ -2221,10 +4021,6 @@ class MainActivity : AppCompatActivity() {
         )
 
         setContentView(root)
-
-        // =====================================================
-        // orderBy বাদ দেওয়া হয়েছে
-        // =====================================================
 
         db.collection("careOf")
             .whereEqualTo(
@@ -2361,10 +4157,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // =====================================================
-        // CARE OF EDIT / DELETE
-        // =====================================================
-
         val buttonRow =
             LinearLayout(this).apply {
 
@@ -2382,7 +4174,6 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        // সবাই Edit করতে পারবে
         val editButton =
             createSmallButton(
                 "✏ Edit"
@@ -2399,7 +4190,6 @@ class MainActivity : AppCompatActivity() {
             editButton
         )
 
-        // শুধু Admin Delete করতে পারবে
         if (currentRole == "admin") {
 
             val deleteButton =
@@ -2952,7 +4742,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // CARE OF SERIALS
+    // CARE OF SERIAL
     // =========================================================
 
     private fun showCareOfSerials(
@@ -3056,13 +4846,6 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(
                     darkText
                 )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(5)
-                )
             }
 
         content.addView(titleText)
@@ -3071,7 +4854,7 @@ class MainActivity : AppCompatActivity() {
             TextView(this).apply {
 
                 text =
-                    "📅 তারিখ: $date"
+                    "📅 তারিখ: ${formatDisplayDate(date)}"
 
                 textSize = 17f
 
@@ -3146,12 +4929,17 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val serials =
-                    result.documents.sortedBy {
-
-                        it.getLong(
-                            "number"
-                        ) ?: 0L
-                    }
+                    result.documents.sortedWith(
+                        compareByDescending<DocumentSnapshot> {
+                            it.getBoolean(
+                                "patientVip"
+                            ) ?: false
+                        }.thenBy {
+                            it.getLong(
+                                "number"
+                            ) ?: 0L
+                        }
+                    )
 
                 for (document in serials) {
 
@@ -3180,9 +4968,13 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun createSerialCard(
-        document:
-        com.google.firebase.firestore.DocumentSnapshot
+        document: DocumentSnapshot
     ): LinearLayout {
+
+        val isVip =
+            document.getBoolean(
+                "patientVip"
+            ) ?: false
 
         val card =
             LinearLayout(this).apply {
@@ -3199,7 +4991,15 @@ class MainActivity : AppCompatActivity() {
 
                 background =
                     roundedCardDrawable(
-                        Color.WHITE,
+                        if (isVip) {
+                            Color.rgb(
+                                255,
+                                248,
+                                225
+                            )
+                        } else {
+                            Color.WHITE
+                        },
                         dp(15)
                     )
 
@@ -3243,6 +5043,11 @@ class MainActivity : AppCompatActivity() {
                 "status"
             ) ?: "Waiting"
 
+        val description =
+            document.getString(
+                "description"
+            ) ?: ""
+
         val createdByRole =
             document.getString(
                 "createdByRole"
@@ -3262,7 +5067,11 @@ class MainActivity : AppCompatActivity() {
             TextView(this).apply {
 
                 text =
-                    "Serial #$number"
+                    if (isVip) {
+                        "⭐ VIP  •  Serial #$number"
+                    } else {
+                        "Serial #$number"
+                    }
 
                 textSize = 21f
 
@@ -3270,7 +5079,15 @@ class MainActivity : AppCompatActivity() {
                     Typeface.DEFAULT_BOLD
 
                 setTextColor(
-                    primaryColor
+                    if (isVip) {
+                        Color.rgb(
+                            190,
+                            120,
+                            0
+                        )
+                    } else {
+                        primaryColor
+                    }
                 )
             }
 
@@ -3290,12 +5107,41 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        card.addView(
-            createInfoText(
-                "👤 Care Of",
-                careOf
+        if (careOf != "-") {
+
+            card.addView(
+                createInfoText(
+                    "👤 Care Of",
+                    careOf
+                )
             )
-        )
+        }
+
+        if (description.isNotEmpty()) {
+
+            card.addView(
+                createInfoText(
+                    "📝 বিবরণ",
+                    description
+                )
+            )
+        }
+
+        if (
+            document.getBoolean(
+                "hasAttachment"
+            ) == true
+        ) {
+
+            card.addView(
+                createInfoText(
+                    "📎 Document",
+                    document.getString(
+                        "attachmentName"
+                    ) ?: "সংযুক্ত"
+                )
+            )
+        }
 
         card.addView(
             createInfoText(
@@ -3371,31 +5217,7 @@ class MainActivity : AppCompatActivity() {
 
             buttonRow.addView(delete)
         }
-
-        if (
-            currentRole == "operator" ||
-            currentRole == "admin"
-        ) {
-
-            val statusButton =
-                createSmallButton(
-                    "📌 Status"
-                )
-
-            statusButton.setOnClickListener {
-
-                showStatusDialog(
-                    document.id,
-                    status
-                )
-            }
-
-            buttonRow.addView(
-                statusButton
-            )
-        }
-
-        card.addView(buttonRow)
+card.addView(buttonRow)
 
         card.layoutParams =
             LinearLayout.LayoutParams(
@@ -3419,24 +5241,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun showEditSerialDialog(
-        document:
-        com.google.firebase.firestore.DocumentSnapshot
+        document: DocumentSnapshot
     ) {
-
-        val patientInput =
-            EditText(this).apply {
-
-                hint =
-                    "Patient Name"
-
-                setText(
-                    document.getString(
-                        "patient"
-                    ) ?: ""
-                )
-
-                textSize = 17f
-            }
 
         val container =
             LinearLayout(this).apply {
@@ -3446,19 +5252,72 @@ class MainActivity : AppCompatActivity() {
 
                 setPadding(
                     dp(20),
-                    dp(10),
+                    dp(5),
                     dp(20),
                     0
                 )
-
-                addView(
-                    patientInput,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dp(60)
-                    )
-                )
             }
+
+        val patientInput =
+            createFormInput(
+                "Patient Name"
+            )
+
+        patientInput.setText(
+            document.getString(
+                "patient"
+            ) ?: ""
+        )
+
+        val descriptionInput =
+            createFormInput(
+                "Description"
+            )
+
+        descriptionInput.setSingleLine(false)
+        descriptionInput.minLines = 4
+        descriptionInput.gravity = Gravity.TOP
+
+        descriptionInput.setText(
+            document.getString(
+                "description"
+            ) ?: ""
+        )
+
+        val vipCheck =
+            CheckBox(this).apply {
+
+                text =
+                    "⭐ VIP Patient"
+
+                textSize = 17f
+
+                isChecked =
+                    document.getBoolean(
+                        "patientVip"
+                    ) ?: false
+            }
+
+        container.addView(
+            patientInput,
+            formParams()
+        )
+
+        container.addView(
+            vipCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(55)
+            )
+        )
+
+        container.addView(
+            descriptionInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(110)
+            )
+        )
 
         AlertDialog.Builder(this)
             .setTitle(
@@ -3476,6 +5335,9 @@ class MainActivity : AppCompatActivity() {
                 val newPatient =
                     patientInput.text.toString().trim()
 
+                val newDescription =
+                    descriptionInput.text.toString().trim()
+
                 if (
                     newPatient.isEmpty()
                 ) {
@@ -3492,8 +5354,12 @@ class MainActivity : AppCompatActivity() {
                 db.collection("serials")
                     .document(document.id)
                     .update(
-                        "patient",
-                        newPatient
+                        mapOf(
+                            "patient" to newPatient,
+                            "description" to newDescription,
+                            "patientVip" to
+                                    vipCheck.isChecked
+                        )
                     )
                     .addOnSuccessListener {
 
@@ -3502,6 +5368,7 @@ class MainActivity : AppCompatActivity() {
                             "Serial আপডেট হয়েছে",
                             Toast.LENGTH_SHORT
                         ).show()
+
                     }
                     .addOnFailureListener { error ->
 
@@ -3684,6 +5551,13 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(
                     darkText
                 )
+
+                setPadding(
+                    0,
+                    0,
+                    0,
+                    dp(10)
+                )
             }
 
         content.addView(heading)
@@ -3733,13 +5607,28 @@ class MainActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                val serials =
-                    result.documents.sortedBy {
+                // =================================================
+                // VIP প্রথমে
+                // তারপর Date
+                // তারপর Serial Number
+                // =================================================
 
-                        it.getLong(
-                            "number"
-                        ) ?: 0L
-                    }
+                val serials =
+                    result.documents.sortedWith(
+                        compareByDescending<DocumentSnapshot> {
+                            it.getBoolean(
+                                "patientVip"
+                            ) ?: false
+                        }.thenByDescending {
+                            it.getString(
+                                "createdDate"
+                            ) ?: ""
+                        }.thenBy {
+                            it.getLong(
+                                "number"
+                            ) ?: 0L
+                        }
+                    )
 
                 for (document in serials) {
 
@@ -3765,7 +5654,8 @@ class MainActivity : AppCompatActivity() {
 
     // =========================================================
     // INNER TOP BAR
-    // =========================================================
+    //
+// =========================================================
 
     private fun createInnerTopBar(
         titleText: String,
@@ -4231,9 +6121,7 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        card.addView(
-            labelView
-        )
+        card.addView(labelView)
 
         return card
     }
@@ -4347,7 +6235,6 @@ class MainActivity : AppCompatActivity() {
             }
 
         card.addView(titleText)
-
         card.addView(valueText)
 
         return card
@@ -4469,10 +6356,6 @@ class MainActivity : AppCompatActivity() {
             header
         )
 
-        // =====================================================
-        // ADMIN CONTROL
-        // =====================================================
-
         if (role == "admin") {
 
             navigationView.menu.add(
@@ -4500,10 +6383,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // =====================================================
-        // USER MANAGEMENT
-        // =====================================================
-
         navigationView.menu.add(
             "User Management"
         ).apply {
@@ -4527,10 +6406,6 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         }
-
-        // =====================================================
-        // NOTIFICATIONS
-        // =====================================================
 
         navigationView.menu.add(
             "Notifications"
@@ -4556,10 +6431,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // =====================================================
-        // SETTINGS
-        // =====================================================
-
         navigationView.menu.add(
             "Settings"
         ).apply {
@@ -4583,10 +6454,6 @@ class MainActivity : AppCompatActivity() {
                 true
             }
         }
-
-        // =====================================================
-        // LOGOUT
-        // =====================================================
 
         navigationView.menu.add(
             "Logout"
