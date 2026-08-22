@@ -5982,16 +5982,15 @@ card.addView(buttonRow)
     }
 
     
-private fun showTotalSerial() {
+    private fun showTotalSerial() {
 
         currentScreen = SCREEN_TOTAL_SERIAL
         setupSystemBars()
 
-        val root =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setBackgroundColor(backgroundColor)
-            }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
 
         root.addView(
             createInnerTopBar("Total Serial") {
@@ -6000,457 +5999,312 @@ private fun showTotalSerial() {
         )
 
         val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(30))
+        }
 
-        val content =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(
-                    dp(14),
-                    dp(14),
-                    dp(14),
-                    dp(30)
-                )
+        content.addView(TextView(this).apply {
+            text = "📋 Total Serial"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(0, 0, 0, dp(12))
+        })
+
+        // =========================================================
+        // THREE TOP TABS
+        // =========================================================
+        val tabRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val allTab = createSmallButton("① সকল সিরিয়াল")
+        val myTab = createSmallButton("② আমার সিরিয়াল")
+        val adminTab = createSmallButton("③ User / Operator / Admin")
+
+        fun tabParams(weight: Float): LinearLayout.LayoutParams =
+            LinearLayout.LayoutParams(0, dp(52), weight).apply {
+                setMargins(dp(3), 0, dp(3), dp(10))
             }
 
-        content.addView(
-            TextView(this).apply {
-                text = "📋 Total Serial Management"
-                textSize = 24f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                setMargins(0, 0, 0, dp(12))
-            }
+        tabRow.addView(allTab, tabParams(1f))
+        tabRow.addView(myTab, tabParams(1f))
+        if (currentRole == "admin") {
+            tabRow.addView(adminTab, tabParams(1.35f))
+        }
+        content.addView(tabRow)
+
+        // =========================================================
+        // DATE SELECTOR
+        // =========================================================
+        val dateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val previousDate = createSmallButton("‹ পূর্ববর্তী")
+        val dateButton = createPrimaryButton(
+            "📅 ${formatDisplayDate(selectedSerialDate)}"
         )
+        val nextDate = createSmallButton("পরবর্তী ›")
 
-        content.addView(
-            TextView(this).apply {
-                text = "📅 নির্বাচিত তারিখ"
-                textSize = 17f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-            }
-        )
-
-        val dateRow =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-
-        val previousDate =
-            createSmallButton("‹ পূর্ববর্তী")
-
-        val dateButton =
-            createPrimaryButton(
-                formatDisplayDate(selectedSerialDate)
-            )
-
-        val nextDate =
-            createSmallButton("পরবর্তী ›")
-
-        dateRow.addView(
-            previousDate,
-            LinearLayout.LayoutParams(
-                0,
-                dp(54),
-                1f
-            ).apply {
-                setMargins(0, dp(6), dp(4), dp(10))
-            }
-        )
-
-        dateRow.addView(
-            dateButton,
-            LinearLayout.LayoutParams(
-                0,
-                dp(54),
-                1.4f
-            ).apply {
-                setMargins(dp(4), dp(6), dp(4), dp(10))
-            }
-        )
-
-        dateRow.addView(
-            nextDate,
-            LinearLayout.LayoutParams(
-                0,
-                dp(54),
-                1f
-            ).apply {
-                setMargins(dp(4), dp(6), 0, dp(10))
-            }
-        )
-
+        dateRow.addView(previousDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+            setMargins(0, dp(4), dp(4), dp(6))
+        })
+        dateRow.addView(dateButton, LinearLayout.LayoutParams(0, dp(54), 1.45f).apply {
+            setMargins(dp(4), dp(4), dp(4), dp(6))
+        })
+        dateRow.addView(nextDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+            setMargins(dp(4), dp(4), 0, dp(6))
+        })
         content.addView(dateRow)
 
-        val dateInfo =
-            TextView(this).apply {
-                text =
-                    "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-                textSize = 15f
-                setTextColor(primaryColor)
-                setPadding(
-                    dp(4),
-                    0,
-                    dp(4),
-                    dp(12)
-                )
-            }
-
+        val dateInfo = TextView(this).apply {
+            text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(primaryColor)
+            setPadding(dp(4), dp(2), dp(4), dp(10))
+        }
         content.addView(dateInfo)
 
-        val progress =
-            ProgressBar(this).apply {
-                visibility = View.GONE
-            }
-
-        content.addView(
-            progress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(50)
-            ).apply {
-                gravity = Gravity.CENTER
-            }
-        )
+        val progress = ProgressBar(this).apply {
+            visibility = View.GONE
+        }
+        content.addView(progress, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, dp(50)
+        ).apply { gravity = Gravity.CENTER })
 
         // =========================================================
-        // LAYER 1 — ALL SERIALS
+        // THREE TAB CONTENT CONTAINERS
         // =========================================================
+        val layer1Container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val layer2Container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val adminContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
 
-        content.addView(
-            TextView(this).apply {
-                text = "১ম Layer — সকলের Serial"
-                textSize = 20f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-                setPadding(0, dp(8), 0, dp(6))
-            }
-        )
+        content.addView(layer1Container)
+        content.addView(layer2Container)
+        if (currentRole == "admin") content.addView(adminContainer)
 
-        val layer1Summary =
-            TextView(this).apply {
-                text = "Serial লোড হচ্ছে..."
-                textSize = 16f
-                setTextColor(primaryColor)
-                setPadding(0, 0, 0, dp(8))
-            }
+        // ------------------------- Layer 1 -------------------------
+        val layer1Summary = TextView(this).apply {
+            text = "Serial লোড হচ্ছে..."
+            textSize = 16f
+            setTextColor(primaryColor)
+            setPadding(0, 0, 0, dp(8))
+        }
+        val layer1List = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        layer1Container.addView(TextView(this).apply {
+            text = "১ম — সকল সিরিয়াল"
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(0, dp(6), 0, dp(6))
+        })
+        layer1Container.addView(layer1Summary)
+        layer1Container.addView(layer1List)
 
-        content.addView(layer1Summary)
+        // ------------------------- Layer 2 -------------------------
+        val layer2Summary = TextView(this).apply {
+            text = "আমার Serial লোড হচ্ছে..."
+            textSize = 16f
+            setTextColor(primaryColor)
+            setPadding(0, 0, 0, dp(8))
+        }
+        val layer2List = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        layer2Container.addView(TextView(this).apply {
+            text = "২য় — আমার সিরিয়াল"
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(0, dp(6), 0, dp(6))
+        })
+        layer2Container.addView(layer2Summary)
+        layer2Container.addView(layer2List)
 
-        val layer1List =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-
-        content.addView(layer1List)
-
-        // =========================================================
-        // LAYER 2 — MY SERIALS
-        // =========================================================
-
-        content.addView(
-            TextView(this).apply {
-                text = "২য় Layer — আমার Serial"
-                textSize = 20f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-                setPadding(0, dp(22), 0, dp(6))
-            }
-        )
-
-        val layer2Summary =
-            TextView(this).apply {
-                text = "আমার Serial লোড হচ্ছে..."
-                textSize = 16f
-                setTextColor(primaryColor)
-                setPadding(0, 0, 0, dp(8))
-            }
-
-        content.addView(layer2Summary)
-
-        val layer2List =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-
-        content.addView(layer2List)
-
-        // =========================================================
-        // LAYER 3 — ADMIN ONLY
-        // =========================================================
-
+        // ------------------------- Layer 3 -------------------------
         var adminUserSpinner: Spinner? = null
-        var adminUserOptions:
-                List<Pair<String, String>> = emptyList()
+        var adminUserOptions: List<Pair<String, String>> = emptyList()
         var adminLayerSummary: TextView? = null
         var adminLayerList: LinearLayout? = null
 
         if (currentRole == "admin") {
+            adminContainer.addView(TextView(this).apply {
+                text = "৩য় — User / Operator / Admin"
+                textSize = 20f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(darkText)
+                setPadding(0, dp(6), 0, dp(6))
+            })
+            adminContainer.addView(TextView(this).apply {
+                text = "ব্যক্তি নির্বাচন করুন"
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(darkText)
+                setPadding(0, dp(4), 0, dp(6))
+            })
 
-            content.addView(
-                TextView(this).apply {
-                    text =
-                        "৩য় Layer — User / Operator / Admin অনুযায়ী Serial"
-                    textSize = 20f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(darkText)
-                    setPadding(0, dp(22), 0, dp(6))
-                }
-            )
+            adminUserSpinner = Spinner(this)
+            adminContainer.addView(adminUserSpinner, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(55)
+            ).apply { setMargins(0, 0, 0, dp(10)) })
 
-            content.addView(
-                TextView(this).apply {
-                    text = "ব্যক্তি নির্বাচন করুন"
-                    textSize = 16f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(darkText)
-                    setPadding(0, dp(4), 0, dp(6))
-                }
-            )
+            adminLayerSummary = TextView(this).apply {
+                text = "User List লোড হচ্ছে..."
+                textSize = 16f
+                setTextColor(primaryColor)
+                setPadding(0, 0, 0, dp(8))
+            }
+            adminContainer.addView(adminLayerSummary)
 
-            val spinner = Spinner(this)
-            adminUserSpinner = spinner
-
-            content.addView(
-                spinner,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(55)
-                ).apply {
-                    setMargins(0, 0, 0, dp(10))
-                }
-            )
-
-            val adminSummary =
-                TextView(this).apply {
-                    text = "User List লোড হচ্ছে..."
-                    textSize = 16f
-                    setTextColor(primaryColor)
-                    setPadding(0, 0, 0, dp(8))
-                }
-
-            adminLayerSummary = adminSummary
-            content.addView(adminSummary)
-
-            val adminList =
-                LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                }
-
-            adminLayerList = adminList
-            content.addView(adminList)
+            adminLayerList = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            adminContainer.addView(adminLayerList)
         }
 
         scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
+        root.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
         setContentView(root)
 
-        var allDocuments:
-                List<DocumentSnapshot> = emptyList()
+        var activeTab = 1
+        var allDocuments: List<DocumentSnapshot> = emptyList()
 
-        fun renderAdminLayer(
-            dateDocuments: List<DocumentSnapshot>
-        ) {
+        fun updateTabStyle() {
+            val selectedBg = roundedCardDrawable(topBarColor, dp(12))
+            val normalBg = roundedCardDrawable(Color.WHITE, dp(12))
+            val tabs = mutableListOf(allTab to 1, myTab to 2)
+            if (currentRole == "admin") tabs.add(adminTab to 3)
+            tabs.forEach { (button, index) ->
+                button.background = if (activeTab == index) selectedBg else normalBg
+                button.setTextColor(if (activeTab == index) Color.WHITE else primaryColor)
+                button.typeface = Typeface.DEFAULT_BOLD
+            }
+        }
 
-            if (
-                currentRole != "admin" ||
-                adminUserSpinner == null ||
-                adminLayerSummary == null ||
-                adminLayerList == null ||
-                adminUserOptions.isEmpty()
-            ) {
+        fun renderAdminLayer(dateDocuments: List<DocumentSnapshot>) {
+            if (currentRole != "admin" || adminUserSpinner == null ||
+                adminLayerSummary == null || adminLayerList == null) return
+
+            if (adminUserOptions.isEmpty()) {
+                adminLayerSummary!!.text = "কোনো User / Operator / Admin পাওয়া যায়নি"
+                adminLayerList!!.removeAllViews()
                 return
             }
 
-            val position =
-                adminUserSpinner!!.selectedItemPosition
-                    .coerceIn(
-                        0,
-                        adminUserOptions.size - 1
-                    )
+            val position = adminUserSpinner!!.selectedItemPosition.coerceIn(
+                0, adminUserOptions.size - 1
+            )
+            val selected = adminUserOptions[position]
+            val selectedUid = selected.first
+            val selectedNameRole = selected.second
 
-            val selected =
-                adminUserOptions[position]
-
-            val selectedUid =
-                selected.first
-
-            val selectedNameRole =
-                selected.second
-
-            val selectedSerials =
-                dateDocuments
-                    .filter {
-                        (
-                            it.getString(
-                                "createdByUid"
-                            ) ?: ""
-                        ) == selectedUid
-                    }
-                    .sortedWith(
-                        compareByDescending<DocumentSnapshot> {
-                            it.getBoolean(
-                                "patientVip"
-                            ) ?: false
-                        }.thenBy {
-                            it.getLong(
-                                "number"
-                            ) ?: 0L
-                        }
-                    )
+            val selectedSerials = dateDocuments.filter {
+                (it.getString("createdByUid") ?: "") == selectedUid
+            }.sortedWith(
+                compareByDescending<DocumentSnapshot> {
+                    it.getBoolean("patientVip") ?: false
+                }.thenBy { it.getLong("number") ?: 0L }
+            )
 
             adminLayerSummary!!.text =
                 "$selectedNameRole | মোট Serial: ${selectedSerials.size}"
-
             adminLayerList!!.removeAllViews()
 
             if (selectedSerials.isEmpty()) {
-
-                adminLayerList!!.addView(
-                    createEmptyText(
-                        "এই তারিখে নির্বাচিত ব্যক্তির কোনো Serial নেই"
-                    )
-                )
-
+                adminLayerList!!.addView(createEmptyText(
+                    "এই তারিখে নির্বাচিত ব্যক্তির কোনো Serial নেই"
+                ))
             } else {
-
                 selectedSerials.forEach { document ->
-                    adminLayerList!!.addView(
-                        createSerialCard(document)
-                    )
+                    adminLayerList!!.addView(createSerialCard(document))
                 }
             }
         }
 
         fun renderAllLayers() {
+            val dateDocuments = allDocuments.filter {
+                (it.getString("createdDate") ?: "") == selectedSerialDate
+            }.sortedWith(
+                compareByDescending<DocumentSnapshot> {
+                    it.getBoolean("patientVip") ?: false
+                }.thenBy { it.getLong("number") ?: 0L }
+            )
 
             layer1List.removeAllViews()
-            layer2List.removeAllViews()
-
-            val dateDocuments =
-                allDocuments
-                    .filter {
-                        (
-                            it.getString(
-                                "createdDate"
-                            ) ?: ""
-                        ) == selectedSerialDate
-                    }
-                    .sortedWith(
-                        compareByDescending<DocumentSnapshot> {
-                            it.getBoolean(
-                                "patientVip"
-                            ) ?: false
-                        }.thenBy {
-                            it.getLong(
-                                "number"
-                            ) ?: 0L
-                        }
-                    )
-
             layer1Summary.text =
                 "📅 ${formatDisplayDate(selectedSerialDate)} | মোট Serial: ${dateDocuments.size}"
-
             if (dateDocuments.isEmpty()) {
-
-                layer1List.addView(
-                    createEmptyText(
-                        "এই তারিখে কোনো Serial পাওয়া যায়নি"
-                    )
-                )
-
+                layer1List.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
             } else {
-
                 dateDocuments.forEach { document ->
-                    layer1List.addView(
-                        createSerialCard(document)
-                    )
+                    layer1List.addView(createSerialCard(document))
                 }
             }
 
-            val myUid =
-                auth.currentUser?.uid ?: ""
-
-            val myDocuments =
-                dateDocuments.filter {
-                    (
-                        it.getString(
-                            "createdByUid"
-                        ) ?: ""
-                    ) == myUid
-                }
-
+            layer2List.removeAllViews()
+            val myUid = auth.currentUser?.uid ?: ""
+            val myDocuments = dateDocuments.filter {
+                (it.getString("createdByUid") ?: "") == myUid
+            }
             layer2Summary.text =
                 "👤 ${currentUserDisplayName.ifBlank { "বর্তমান Account" }} | মোট Serial: ${myDocuments.size}"
-
             if (myDocuments.isEmpty()) {
-
-                layer2List.addView(
-                    createEmptyText(
-                        "এই তারিখে আপনার কোনো Serial নেই"
-                    )
-                )
-
+                layer2List.addView(createEmptyText("এই তারিখে আপনার কোনো Serial নেই"))
             } else {
-
                 myDocuments.forEach { document ->
-                    layer2List.addView(
-                        createSerialCard(document)
-                    )
+                    layer2List.addView(createSerialCard(document))
                 }
             }
 
             renderAdminLayer(dateDocuments)
         }
 
+        fun showOnlyTab(tab: Int) {
+            if (tab == 3 && currentRole != "admin") return
+            activeTab = tab
+            layer1Container.visibility = if (tab == 1) View.VISIBLE else View.GONE
+            layer2Container.visibility = if (tab == 2) View.VISIBLE else View.GONE
+            adminContainer.visibility = if (tab == 3 && currentRole == "admin") {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+            updateTabStyle()
+        }
+
         fun loadSerials() {
-
             progress.visibility = View.VISIBLE
-
-            layer1Summary.text =
-                "Serial লোড হচ্ছে..."
-
-            layer2Summary.text =
-                "আমার Serial লোড হচ্ছে..."
+            layer1Summary.text = "Serial লোড হচ্ছে..."
+            layer2Summary.text = "আমার Serial লোড হচ্ছে..."
 
             db.collection("serials")
                 .get()
                 .addOnSuccessListener { result ->
-
-                    allDocuments =
-                        result.documents
-
-                    progress.visibility =
-                        View.GONE
-
+                    allDocuments = result.documents
+                    progress.visibility = View.GONE
                     renderAllLayers()
                 }
                 .addOnFailureListener { error ->
-
-                    progress.visibility =
-                        View.GONE
-
-                    layer1Summary.text =
-                        "Serial লোড করা যায়নি"
-
-                    layer2Summary.text =
-                        "Serial লোড করা যায়নি"
-
+                    progress.visibility = View.GONE
+                    layer1Summary.text = "Serial লোড করা যায়নি"
+                    layer2Summary.text = "Serial লোড করা যায়নি"
                     Toast.makeText(
                         this,
                         "Total Serial পাওয়া যায়নি: ${error.message}",
@@ -6460,169 +6314,94 @@ private fun showTotalSerial() {
         }
 
         fun moveDate(days: Int) {
-
-            val calendar =
-                Calendar.getInstance()
-
+            val calendar = Calendar.getInstance()
             try {
-
-                val parser =
-                    SimpleDateFormat(
-                        "yyyy-MM-dd",
-                        Locale.getDefault()
-                    )
-
-                calendar.time =
-                    parser.parse(
-                        selectedSerialDate
-                    ) ?: Calendar.getInstance().time
-
-            } catch (
-                ignored: Exception
-            ) {
+                val parser = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                calendar.time = parser.parse(selectedSerialDate)
+                    ?: Calendar.getInstance().time
+            } catch (ignored: Exception) {
             }
-
-            calendar.add(
-                Calendar.DAY_OF_MONTH,
-                days
-            )
-
-            selectedSerialDate =
-                SimpleDateFormat(
-                    "yyyy-MM-dd",
-                    Locale.getDefault()
-                ).format(
-                    calendar.time
-                )
-
-            dateButton.text =
-                formatDisplayDate(
-                    selectedSerialDate
-                )
-
-            dateInfo.text =
-                "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-
+            calendar.add(Calendar.DAY_OF_MONTH, days)
+            selectedSerialDate = SimpleDateFormat(
+                "yyyy-MM-dd", Locale.getDefault()
+            ).format(calendar.time)
+            dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
+            dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
             renderAllLayers()
         }
 
-        previousDate.setOnClickListener {
-            moveDate(-1)
-        }
-
-        nextDate.setOnClickListener {
-            moveDate(1)
-        }
+        previousDate.setOnClickListener { moveDate(-1) }
+        nextDate.setOnClickListener { moveDate(1) }
 
         dateButton.setOnClickListener {
-
             showAddSerialDatePicker {
-
-                dateButton.text =
-                    formatDisplayDate(
-                        selectedSerialDate
-                    )
-
-                dateInfo.text =
-                    "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-
+                dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
+                dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
                 renderAllLayers()
             }
         }
 
+        allTab.setOnClickListener { showOnlyTab(1) }
+        myTab.setOnClickListener { showOnlyTab(2) }
+
         if (currentRole == "admin") {
+            adminTab.setOnClickListener { showOnlyTab(3) }
 
             adminUserSpinner!!.onItemSelectedListener =
                 object : AdapterView.OnItemSelectedListener {
-
-                    override fun onNothingSelected(
-                        parent: AdapterView<*>?
-                    ) {
-                    }
-
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
                     override fun onItemSelected(
                         parent: AdapterView<*>?,
                         view: View?,
                         position: Int,
                         id: Long
                     ) {
-                        renderAllLayers()
+                        if (allDocuments.isNotEmpty()) renderAllLayers()
                     }
                 }
 
             db.collection("users")
                 .get()
                 .addOnSuccessListener { result ->
-
-                    adminUserOptions =
-                        result.documents.mapNotNull { document ->
-
-                            val role =
-                                document.getString(
-                                    "role"
-                                ) ?: ""
-
-                            val normalizedRole =
-                                role.lowercase(
-                                    Locale.getDefault()
-                                )
-
-                            if (
-                                normalizedRole !in
-                                listOf(
-                                    "user",
-                                    "operator",
-                                    "admin"
-                                )
-                            ) {
-                                return@mapNotNull null
-                            }
-
-                            val uid =
-                                document.id
-
-                            val name =
-                                document.getString(
-                                    "name"
-                                )
-                                    ?: document.getString(
-                                        "username"
-                                    )
-                                    ?: document.getString(
-                                        "displayName"
-                                    )
-                                    ?: document.getString(
-                                        "email"
-                                    )
-                                    ?: uid
-
-                            uid to
-                                    "$name (${normalizedRole.uppercase()})"
-                        }.sortedBy {
-                            it.second.lowercase(
-                                Locale.getDefault()
-                            )
+                    adminUserOptions = result.documents.mapNotNull { document ->
+                        val role = document.getString("role") ?: ""
+                        val normalizedRole = role.lowercase(Locale.getDefault())
+                        if (normalizedRole !in listOf("user", "operator", "admin")) {
+                            return@mapNotNull null
                         }
 
-                    adminUserSpinner!!.adapter =
-                        ArrayAdapter(
-                            this,
-                            android.R.layout.simple_spinner_dropdown_item,
-                            adminUserOptions.map {
-                                it.second
-                            }
-                        )
+                        val uid = document.id
+                        val name = document.getString("name")?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: document.getString("displayName")?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                            ?: document.getString("username")?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                            ?: document.getString("email")?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                            ?: uid
 
-                    adminLayerSummary?.text =
-                        "ব্যক্তি নির্বাচন করুন"
+                        val roleText = when (normalizedRole) {
+                            "admin" -> "Admin"
+                            "operator" -> "Operator"
+                            else -> "User"
+                        }
+                        uid to "$name ($roleText)"
+                    }.sortedBy {
+                        it.second.lowercase(Locale.getDefault())
+                    }
 
-                    renderAllLayers()
+                    adminUserSpinner!!.adapter = ArrayAdapter(
+                        this,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        adminUserOptions.map { it.second }
+                    )
+
+                    if (allDocuments.isNotEmpty()) renderAllLayers()
                 }
                 .addOnFailureListener { error ->
-
-                    adminLayerSummary?.text =
-                        "User List পাওয়া যায়নি"
-
+                    adminUserOptions = emptyList()
+                    adminLayerSummary?.text = "User List লোড করা যায়নি"
                     Toast.makeText(
                         this,
                         "User List পাওয়া যায়নি: ${error.message}",
@@ -6631,13 +6410,9 @@ private fun showTotalSerial() {
                 }
         }
 
+        showOnlyTab(1)
         loadSerials()
     }
-
-    // =========================================================
-    // INNER TOP BAR
-    //
-// =========================================================
 
     private fun createInnerTopBar(
         titleText: String,
