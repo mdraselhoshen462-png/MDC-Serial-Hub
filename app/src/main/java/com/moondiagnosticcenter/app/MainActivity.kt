@@ -33,6 +33,7 @@ import com.google.firebase.firestore.SetOptions
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -818,6 +819,23 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
+        val messageBanner =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = roundedCardDrawable(Color.rgb(198, 40, 40), dp(12))
+                visibility = View.GONE
+            }
+
+        content.addView(
+            messageBanner,
+            LinearLayout.LayoutParams(-1, -2).apply {
+                setMargins(0, 0, 0, dp(12))
+            }
+        )
+
+        loadTodayDashboardMessages(messageBanner)
+
         val welcome =
             TextView(this).apply {
 
@@ -1163,6 +1181,203 @@ class MainActivity : AppCompatActivity() {
         reports.setOnClickListener {
             showReports()
         }
+    }
+
+    // =========================================================
+    // DATE-WISE MESSAGE
+    // =========================================================
+
+    private fun loadTodayDashboardMessages(container: LinearLayout) {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
+        db.collection("messages")
+            .whereEqualTo("date", today)
+            .whereEqualTo("active", true)
+            .get()
+            .addOnSuccessListener { result ->
+                container.removeAllViews()
+                if (result.isEmpty) {
+                    container.visibility = View.GONE
+                    return@addOnSuccessListener
+                }
+                container.visibility = View.VISIBLE
+                container.addView(TextView(this).apply {
+                    text = "📢 আজকের গুরুত্বপূর্ণ বার্তা"
+                    textSize = 17f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.WHITE)
+                })
+                result.documents.forEach { doc ->
+                    val message = doc.getString("message") ?: return@forEach
+                    val sender = doc.getString("createdByName") ?: ""
+                    val line = if (sender.isBlank()) message else "$message\n— $sender"
+                    container.addView(TextView(this).apply {
+                        text = line
+                        textSize = 15f
+                        setTextColor(Color.WHITE)
+                        setPadding(0, dp(7), 0, 0)
+                    })
+                }
+            }
+            .addOnFailureListener {
+                container.visibility = View.GONE
+            }
+    }
+
+    private fun showMessages() {
+        setupSystemBars()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
+        root.addView(createInnerTopBar("💬 Message") { showDashboard(currentRole) })
+
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(30))
+        }
+
+        content.addView(TextView(this).apply {
+            text = "💬 তারিখভিত্তিক Message"
+            textSize = 25f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+        })
+        content.addView(TextView(this).apply {
+            text = "যে তারিখ নির্বাচন করবেন, সেই তারিখে প্রত্যেক User / Operator / Admin-এর Dashboard-এর উপরে লাল রঙে Message দেখা যাবে।"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(6), 0, dp(14))
+        })
+
+        content.addView(createPrimaryButton("＋  নতুন Message") .apply {
+            setBackgroundColor(Color.rgb(21, 101, 192))
+            setTextColor(Color.WHITE)
+            setOnClickListener { showCreateMessageDialog() }
+        }, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, 0, 0, dp(14)) })
+
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
+        db.collection("messages")
+            .orderBy("date", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(100)
+            .get()
+            .addOnSuccessListener { result ->
+                if (result.isEmpty) {
+                    content.addView(createEmptyText("কোনো Message নেই"))
+                } else {
+                    result.documents.forEach { doc ->
+                        val date = doc.getString("date") ?: ""
+                        val message = doc.getString("message") ?: ""
+                        val sender = doc.getString("createdByName") ?: ""
+                        val card = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(14), dp(12), dp(14), dp(12))
+                            background = roundedCardDrawable(if (date == today) Color.rgb(255, 235, 238) else Color.WHITE, dp(14))
+                            elevation = dp(2).toFloat()
+                        }
+                        card.addView(TextView(this).apply {
+                            text = "📅 $date"
+                            textSize = 16f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setTextColor(if (date == today) Color.rgb(198, 40, 40) else darkText)
+                        })
+                        card.addView(TextView(this).apply {
+                            text = message
+                            textSize = 16f
+                            setTextColor(darkText)
+                            setPadding(0, dp(7), 0, 0)
+                        })
+                        if (sender.isNotBlank()) {
+                            card.addView(TextView(this).apply {
+                                text = "দিয়েছেন: $sender"
+                                textSize = 13f
+                                setTextColor(lightText)
+                                setPadding(0, dp(5), 0, 0)
+                            })
+                        }
+                        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
+                    }
+                }
+            }
+            .addOnFailureListener { e ->
+                content.addView(createEmptyText("Message পড়া যায়নি: ${e.message}"))
+            }
+
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+    }
+
+    private fun showCreateMessageDialog() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+        }
+        val dateInput = createFormInput("তারিখ নির্বাচন করুন")
+        dateInput.isFocusable = false
+        dateInput.isClickable = true
+        val messageInput = createFormInput("Message লিখুন")
+        messageInput.setSingleLine(false)
+        messageInput.minLines = 5
+        messageInput.gravity = Gravity.TOP
+
+        val selectedDate = Calendar.getInstance()
+        dateInput.setText(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time))
+        dateInput.setOnClickListener {
+            DatePickerDialog(
+                this,
+                { _, year, month, day ->
+                    selectedDate.set(year, month, day)
+                    dateInput.setText(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time))
+                },
+                selectedDate.get(Calendar.YEAR),
+                selectedDate.get(Calendar.MONTH),
+                selectedDate.get(Calendar.DAY_OF_MONTH)
+            ).show()
+        }
+
+        box.addView(TextView(this).apply { text = "কোন দিনের জন্য Message?"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
+        box.addView(dateInput, formParams())
+        box.addView(TextView(this).apply { text = "Message"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(10), 0, dp(4)) })
+        box.addView(messageInput, LinearLayout.LayoutParams(-1, dp(130)).apply { setMargins(0, 0, 0, dp(6)) })
+
+        AlertDialog.Builder(this)
+            .setTitle("নতুন Message")
+            .setView(box)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val date = dateInput.text.toString().trim()
+                        val message = messageInput.text.toString().trim()
+                        if (date.isEmpty() || message.isEmpty()) {
+                            Toast.makeText(this, "তারিখ ও Message দিন", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        val data = hashMapOf(
+                            "date" to date,
+                            "message" to message,
+                            "createdByUid" to (auth.currentUser?.uid ?: ""),
+                            "createdByName" to currentUserDisplayName,
+                            "createdByRole" to currentRole,
+                            "createdAt" to FieldValue.serverTimestamp(),
+                            "active" to true
+                        )
+                        db.collection("messages")
+                            .add(data)
+                            .addOnSuccessListener {
+                                dialog.dismiss()
+                                Toast.makeText(this, "Message সংরক্ষণ হয়েছে", Toast.LENGTH_SHORT).show()
+                                showMessages()
+                            }
+                            .addOnFailureListener { e ->
+                                Toast.makeText(this, "Message সংরক্ষণ করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                    }
+                }
+            }.show()
     }
 
     // =========================================================
@@ -2234,36 +2449,126 @@ class MainActivity : AppCompatActivity() {
         val normalizedName = normalizeCareOfValue(careName)
         val normalizedAddress = normalizeCareOfValue(careAddress)
 
+        if (normalizedName.isBlank()) {
+            Toast.makeText(
+                this,
+                "Care Of নাম দিন",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        // First check the deterministic document ID. This prevents two users
+        // from creating the same Care Of at the same time.
+        val deterministicId = careOfDocumentId(
+            normalizedName,
+            normalizedAddress
+        )
+
         db.collection("careOf")
-            .whereEqualTo("active", true)
+            .document(deterministicId)
             .get()
-            .addOnSuccessListener { result ->
-                val duplicate = result.documents.firstOrNull { doc ->
-                    val existingName = normalizeCareOfValue(
-                        doc.getString("name") ?: ""
-                    )
-                    val existingAddress = normalizeCareOfValue(
-                        doc.getString("address") ?: ""
-                    )
-                    existingName == normalizedName &&
-                            existingAddress == normalizedAddress
+            .addOnSuccessListener { direct ->
+
+                if (direct.exists()) {
+                    onFound(direct)
+                    return@addOnSuccessListener
                 }
 
-                if (duplicate != null) {
-                    onFound(duplicate)
-                } else {
-                    onNotFound()
-                }
+                // Also scan older/random-ID documents so Care Of records
+                // created before this protection are recognized as duplicates.
+                db.collection("careOf")
+                    .whereEqualTo("active", true)
+                    .get()
+                    .addOnSuccessListener { result ->
+
+                        val duplicate = result.documents.firstOrNull { doc ->
+                            val existingName = normalizeCareOfValue(
+                                doc.getString("name") ?: ""
+                            )
+                            val existingAddress = normalizeCareOfValue(
+                                doc.getString("address") ?: ""
+                            )
+
+                            existingName == normalizedName &&
+                                    existingAddress == normalizedAddress
+                        }
+
+                        if (duplicate != null) {
+                            onFound(duplicate)
+                        } else {
+                            onNotFound()
+                        }
+                    }
+                    .addOnFailureListener { error ->
+                        Toast.makeText(
+                            this,
+                            "Care Of যাচাই করা যায়নি: ${error.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
             }
-            .addOnFailureListener {
-                // If duplicate checking cannot be completed, do not create
-                // a possible duplicate silently.
+            .addOnFailureListener { error ->
                 Toast.makeText(
                     this,
-                    "Care Of যাচাই করা যায়নি। আবার চেষ্টা করুন।",
+                    "Care Of যাচাই করা যায়নি: ${error.message}",
                     Toast.LENGTH_LONG
                 ).show()
             }
+    }
+
+    private fun careOfDocumentId(
+        normalizedName: String,
+        normalizedAddress: String
+    ): String {
+        val raw = "$normalizedName|$normalizedAddress"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray(Charsets.UTF_8))
+
+        return "co_" + digest.joinToString("") { byte ->
+            "%02x".format(byte)
+        }
+    }
+
+    private fun saveCareOfWithoutDuplicate(
+        careName: String,
+        careAddress: String,
+        onSaved: () -> Unit,
+        onDuplicate: (DocumentSnapshot) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val normalizedName = normalizeCareOfValue(careName)
+        val normalizedAddress = normalizeCareOfValue(careAddress)
+        val deterministicId = careOfDocumentId(
+            normalizedName,
+            normalizedAddress
+        )
+
+        findDuplicateCareOf(
+            careName,
+            careAddress,
+            onFound = onDuplicate,
+            onNotFound = {
+                val data = hashMapOf(
+                    "name" to careName.trim().replace(Regex("\\s+"), " "),
+                    "address" to careAddress.trim().replace(Regex("\\s+"), " "),
+                    "normalizedName" to normalizedName,
+                    "normalizedAddress" to normalizedAddress,
+                    "active" to true,
+                    "createdByUid" to (auth.currentUser?.uid ?: ""),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+
+                // set() with a deterministic ID is the final duplicate guard:
+                // concurrent saves resolve to the same document instead of
+                // creating two random documents with add().
+                db.collection("careOf")
+                    .document(deterministicId)
+                    .set(data)
+                    .addOnSuccessListener { onSaved() }
+                    .addOnFailureListener { error -> onError(error) }
+            }
+        )
     }
 
     // =========================================================
@@ -2392,46 +2697,37 @@ class MainActivity : AppCompatActivity() {
                     },
                     onNotFound = {
 
-                        val data =
-                            hashMapOf(
-                                "name" to careName,
-                                "address" to careAddress,
-                                "normalizedName" to normalizeCareOfValue(careName),
-                                "normalizedAddress" to normalizeCareOfValue(careAddress),
-                                "active" to true,
-                                "createdByUid" to
-                                        (
-                                            auth.currentUser?.uid
-                                                ?: ""
-                                        ),
-                                "createdAt" to
-                                        FieldValue.serverTimestamp()
-                            )
-
-                        db.collection("careOf")
-                            .add(data)
-                            .addOnSuccessListener {
-
+                        saveCareOfWithoutDuplicate(
+                            careName,
+                            careAddress,
+                            onSaved = {
                                 Toast.makeText(
                                     this,
                                     "Care Of সফলভাবে যোগ হয়েছে",
                                     Toast.LENGTH_SHORT
                                 ).show()
-
                                 dialog.dismiss()
-
                                 onSaved()
-                            }
-                            .addOnFailureListener { error ->
-
+                            },
+                            onDuplicate = { existing ->
                                 saveButton.isEnabled = true
-
+                                val existingName = existing.getString("name") ?: careName
+                                val existingAddress = existing.getString("address") ?: careAddress
+                                AlertDialog.Builder(this)
+                                    .setTitle("Care Of আগে থেকেই আছে")
+                                    .setMessage(if (existingAddress.isBlank()) existingName else "$existingName\n$existingAddress")
+                                    .setPositiveButton("ঠিক আছে", null)
+                                    .show()
+                            },
+                            onError = { error ->
+                                saveButton.isEnabled = true
                                 Toast.makeText(
                                     this,
                                     "Care Of যোগ করা যায়নি: ${error.message}",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
+                        )
                     }
                 )
             }
@@ -4926,52 +5222,41 @@ class MainActivity : AppCompatActivity() {
                 },
                 onNotFound = {
 
-                    val data =
-                        hashMapOf(
-                            "name" to careName,
-                            "address" to careAddress,
-                            "normalizedName" to normalizeCareOfValue(careName),
-                            "normalizedAddress" to normalizeCareOfValue(careAddress),
-                            "active" to true,
-                            "createdByUid" to
-                                    (
-                                        auth.currentUser?.uid
-                                            ?: ""
-                                    ),
-                            "createdAt" to
-                                    FieldValue.serverTimestamp()
-                        )
-
-                    db.collection("careOf")
-                        .add(data)
-                        .addOnSuccessListener {
-
+                    saveCareOfWithoutDuplicate(
+                        careName,
+                        careAddress,
+                        onSaved = {
                             save.isEnabled = true
-
-                            status.text =
-                                "Care Of সফলভাবে যোগ হয়েছে ✓"
-
+                            status.text = "Care Of সফলভাবে যোগ হয়েছে ✓"
                             Toast.makeText(
                                 this,
                                 "Care Of সফলভাবে যোগ হয়েছে",
                                 Toast.LENGTH_SHORT
                             ).show()
-
                             name.text.clear()
                             address.text.clear()
-                        }
-                        .addOnFailureListener { error ->
-
+                        },
+                        onDuplicate = { existing ->
                             save.isEnabled = true
-
+                            status.text = "এই Care Of আগে থেকেই আছে"
+                            val existingName = existing.getString("name") ?: careName
+                            val existingAddress = existing.getString("address") ?: careAddress
+                            AlertDialog.Builder(this)
+                                .setTitle("Care Of আগে থেকেই আছে")
+                                .setMessage(if (existingAddress.isBlank()) existingName else "$existingName\n$existingAddress")
+                                .setPositiveButton("ঠিক আছে", null)
+                                .show()
+                        },
+                        onError = { error ->
+                            save.isEnabled = true
                             status.text = ""
-
                             Toast.makeText(
                                 this,
                                 "Care Of যোগ করা যায়নি: ${error.message}",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
+                    )
                 }
             )
         }
@@ -7651,6 +7936,223 @@ card.addView(buttonRow)
     // NAVIGATION DRAWER
     // =========================================================
 
+    // =========================================================
+    // ADMIN CONTROL PANEL
+    // =========================================================
+
+    private fun showAdminControlPanel() {
+        if (currentRole != "admin") {
+            Toast.makeText(this, "শুধুমাত্র Admin এই পেজ ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        currentScreen = SCREEN_DASHBOARD
+        setupSystemBars()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
+        root.addView(createInnerTopBar("Admin Control Panel") { showDashboard(currentRole) })
+
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(30))
+        }
+
+        content.addView(TextView(this).apply {
+            text = "👑 Admin Control Panel"
+            textSize = 27f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(0, 0, 0, dp(8))
+        })
+        content.addView(TextView(this).apply {
+            text = "অ্যাপের প্রধান প্রশাসনিক কার্যক্রম এখান থেকে পরিচালনা করুন।"
+            textSize = 15f
+            setTextColor(lightText)
+            setPadding(0, 0, 0, dp(18))
+        })
+
+        val actions = listOf(
+            "👥  User Management" to { showUserManagement() },
+            "👨‍⚕️  Doctor Management" to { showDoctorList() },
+            "👤  Care Of Management" to { showCareOfList() },
+            "🔔  Notifications" to { showNotifications() },
+            "⚙️  Settings" to { showSettings() },
+            "📋  Total Serial" to { showTotalSerial() }
+        )
+
+        actions.forEach { (title, action) ->
+            content.addView(createPrimaryButton(title).apply {
+                setOnClickListener { action() }
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(58)
+            ).apply { setMargins(0, 0, 0, dp(10)) })
+        }
+
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
+    }
+
+    // =========================================================
+    // USER MANAGEMENT
+    // =========================================================
+
+    private fun showUserManagement() {
+        if (currentRole != "admin") {
+            Toast.makeText(this, "শুধুমাত্র Admin User Management ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        setupSystemBars()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
+        root.addView(createInnerTopBar("User Management") { showAdminControlPanel() })
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
+        content.addView(TextView(this).apply {
+            text = "👥 User / Operator Management"
+            textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText)
+        })
+        content.addView(TextView(this).apply {
+            text = "Firebase Authentication account তৈরি/পাসওয়ার্ড পরিবর্তন করতে Firebase Console ব্যবহার করুন। এখানে profile, role এবং active status পরিচালনা করা যাবে।"
+            textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(14))
+        })
+
+        db.collection("users").get().addOnSuccessListener { result ->
+            if (result.isEmpty) {
+                content.addView(createEmptyText("কোনো User পাওয়া যায়নি"))
+            } else {
+                result.documents.sortedBy { it.getString("name") ?: it.getString("username") ?: it.id }
+                    .forEach { doc ->
+                        val uid = doc.id
+                        val name = doc.getString("name") ?: doc.getString("username") ?: uid
+                        val role = doc.getString("role") ?: "user"
+                        val active = doc.getBoolean("active") ?: false
+                        val card = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(14), dp(12), dp(14), dp(12))
+                            background = roundedCardDrawable(Color.WHITE, dp(14))
+                            elevation = dp(2).toFloat()
+                        }
+                        card.addView(TextView(this).apply { text = name; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
+                        card.addView(TextView(this).apply { text = "Role: ${role.uppercase()}\nStatus: ${if (active) "Active" else "Inactive"}"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(5), 0, dp(8)) })
+                        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                        val toggle = createPrimaryButton(if (active) "Deactivate" else "Activate")
+                        toggle.setOnClickListener {
+                            db.collection("users").document(uid).update("active", !active)
+                                .addOnSuccessListener { showUserManagement() }
+                                .addOnFailureListener { e -> Toast.makeText(this, "Update ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show() }
+                        }
+                        row.addView(toggle, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(0, 0, dp(6), 0) })
+                        val roleBtn = createPrimaryButton("Change Role")
+                        roleBtn.setOnClickListener { showRoleChangeDialog(uid, role) }
+                        row.addView(roleBtn, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(dp(6), 0, 0, 0) })
+                        card.addView(row)
+                        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
+                    }
+            }
+        }.addOnFailureListener { e -> content.addView(createEmptyText("User List পাওয়া যায়নি: ${e.message}")) }
+
+        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
+    }
+
+    private fun showRoleChangeDialog(uid: String, current: String) {
+        val roles = arrayOf("admin", "operator", "user")
+        var selected = roles.indexOf(current.lowercase()).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("User Role পরিবর্তন")
+            .setSingleChoiceItems(roles, selected) { _, which -> selected = which }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                db.collection("users").document(uid).update("role", roles[selected])
+                    .addOnSuccessListener { showUserManagement() }
+                    .addOnFailureListener { e -> Toast.makeText(this, "Role update ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show() }
+            }.show()
+    }
+
+    // =========================================================
+    // NOTIFICATIONS
+    // =========================================================
+
+    private fun showNotifications() {
+        setupSystemBars()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
+        root.addView(createInnerTopBar("Notifications") { showDashboard(currentRole) })
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
+        content.addView(TextView(this).apply { text = "🔔 Notifications"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
+        if (currentRole == "admin") {
+            content.addView(createPrimaryButton("＋  নতুন Notification").apply { setOnClickListener { showCreateNotificationDialog() } }, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, dp(12), 0, dp(12)) })
+        }
+        db.collection("notifications").orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING).limit(50).get()
+            .addOnSuccessListener { result ->
+                if (result.isEmpty) content.addView(createEmptyText("কোনো Notification নেই"))
+                result.documents.forEach { doc ->
+                    val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)); background = roundedCardDrawable(Color.WHITE, dp(14)); elevation = dp(2).toFloat() }
+                    card.addView(TextView(this).apply { text = doc.getString("title") ?: "Notification"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
+                    card.addView(TextView(this).apply { text = doc.getString("message") ?: ""; textSize = 15f; setTextColor(lightText); setPadding(0, dp(5), 0, 0) })
+                    content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
+                }
+            }.addOnFailureListener { e -> content.addView(createEmptyText("Notification পড়া যায়নি: ${e.message}")) }
+        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
+    }
+
+    private fun showCreateNotificationDialog() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
+        val title = createFormInput("Notification Title")
+        val message = createFormInput("Message")
+        message.setSingleLine(false); message.minLines = 4; message.gravity = Gravity.TOP
+        box.addView(title, formParams()); box.addView(message, LinearLayout.LayoutParams(-1, dp(110)).apply { setMargins(0, 0, 0, dp(8)) })
+        AlertDialog.Builder(this).setTitle("নতুন Notification").setView(box).setNegativeButton("Cancel", null).setPositiveButton("Send", null).create().also { dialog ->
+            dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val t = title.text.toString().trim(); val m = message.text.toString().trim()
+                if (t.isEmpty() || m.isEmpty()) { Toast.makeText(this, "Title ও Message দিন", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                db.collection("notifications").add(hashMapOf("title" to t, "message" to m, "createdByUid" to (auth.currentUser?.uid ?: ""), "createdAt" to FieldValue.serverTimestamp(), "active" to true))
+                    .addOnSuccessListener { dialog.dismiss(); showNotifications() }
+                    .addOnFailureListener { e -> Toast.makeText(this, "Notification তৈরি করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
+            } }
+        }.show()
+    }
+
+    // =========================================================
+    // SETTINGS
+    // =========================================================
+
+    private fun showSettings() {
+        setupSystemBars()
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
+        root.addView(createInnerTopBar("Settings") { showDashboard(currentRole) })
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
+        content.addView(TextView(this).apply { text = "⚙️ App Settings"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
+        val centerName = createFormInput("Center Name")
+        val notice = createFormInput("Default Notice")
+        val autoRefresh = createFormInput("Auto Refresh Seconds")
+        content.addView(TextView(this).apply { text = "Center Name"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(12), 0, dp(4)) })
+        content.addView(centerName, formParams())
+        content.addView(TextView(this).apply { text = "Default Notice"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(notice, formParams())
+        content.addView(TextView(this).apply { text = "Auto Refresh Seconds"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
+        content.addView(autoRefresh, formParams())
+        val save = createPrimaryButton("💾  Save Settings")
+        content.addView(save, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, dp(12), 0, 0) })
+        db.collection("settings").document("app").get().addOnSuccessListener { doc ->
+            centerName.setText(doc.getString("centerName") ?: "Moon Diagnostic Center")
+            notice.setText(doc.getString("defaultNotice") ?: "")
+            autoRefresh.setText((doc.getLong("autoRefreshSeconds") ?: 20L).toString())
+        }
+        save.setOnClickListener {
+            val seconds = autoRefresh.text.toString().toLongOrNull()?.coerceAtLeast(5L) ?: 20L
+            db.collection("settings").document("app").set(hashMapOf("centerName" to centerName.text.toString().trim(), "defaultNotice" to notice.text.toString().trim(), "autoRefreshSeconds" to seconds, "updatedByUid" to (auth.currentUser?.uid ?: ""), "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                .addOnSuccessListener { Toast.makeText(this, "Settings সংরক্ষণ হয়েছে", Toast.LENGTH_SHORT).show() }
+                .addOnFailureListener { e -> Toast.makeText(this, "Settings সংরক্ষণ করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
+        }
+        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
+    }
+
     private fun createNavigationMenu(
         navigationView: NavigationView,
         role: String
@@ -7751,14 +8253,34 @@ card.addView(buttonRow)
                         Gravity.START
                     )
 
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Admin Control Panel",
-                        Toast.LENGTH_SHORT
-                    ).show()
-
+                    showAdminControlPanel()
                     true
                 }
+            }
+        }
+
+        val messageItem = navigationView.menu.add(
+            "💬  Message"
+        ).apply {
+            setIcon(android.R.drawable.ic_dialog_info)
+            setOnMenuItemClickListener {
+                drawerLayout.closeDrawer(Gravity.START)
+                showMessages()
+                true
+            }
+        }
+
+        messageItem.actionView = TextView(this).apply {
+            text = "MESSAGE"
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = roundedCardDrawable(Color.rgb(21, 101, 192), dp(18))
+            setOnClickListener {
+                drawerLayout.closeDrawer(Gravity.START)
+                showMessages()
             }
         }
 
@@ -7776,12 +8298,7 @@ card.addView(buttonRow)
                     Gravity.START
                 )
 
-                Toast.makeText(
-                    this@MainActivity,
-                    "User Management",
-                    Toast.LENGTH_SHORT
-                ).show()
-
+                showUserManagement()
                 true
             }
         }
@@ -7800,12 +8317,7 @@ card.addView(buttonRow)
                     Gravity.START
                 )
 
-                Toast.makeText(
-                    this@MainActivity,
-                    "Notifications",
-                    Toast.LENGTH_SHORT
-                ).show()
-
+                showNotifications()
                 true
             }
         }
@@ -7824,12 +8336,7 @@ card.addView(buttonRow)
                     Gravity.START
                 )
 
-                Toast.makeText(
-                    this@MainActivity,
-                    "Settings",
-                    Toast.LENGTH_SHORT
-                ).show()
-
+                showSettings()
                 true
             }
         }
