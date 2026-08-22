@@ -1154,16 +1154,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         addCareOf.setOnClickListener {
-
-            if (role.lowercase() == "admin") {
-                showAddCareOf()
-            } else {
-                Toast.makeText(
-                    this,
-                    "শুধুমাত্র Admin Care Of যোগ করতে পারবেন",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            // Any authenticated user may add a Care Of.
+            // Edit/Delete is restricted to the creator or Admin.
+            showAddCareOf()
         }
 
         search.setOnClickListener {
@@ -1206,16 +1199,20 @@ class MainActivity : AppCompatActivity() {
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(Color.WHITE)
                 })
+                val prefs = getSharedPreferences("MDC_MESSAGE_DISMISS", MODE_PRIVATE)
                 result.documents.forEach { doc ->
+                    if (prefs.getBoolean("hidden_${doc.id}", false)) return@forEach
                     val message = doc.getString("message") ?: return@forEach
                     val sender = doc.getString("createdByName") ?: ""
-                    val line = if (sender.isBlank()) message else "$message\n— $sender"
-                    container.addView(TextView(this).apply {
-                        text = line
-                        textSize = 15f
-                        setTextColor(Color.WHITE)
-                        setPadding(0, dp(7), 0, 0)
-                    })
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                    val text = TextView(this).apply {
+                        text = if (sender.isBlank()) message else "$message\n— $sender"
+                        textSize = 15f; setTextColor(Color.WHITE); setPadding(0, dp(7), dp(8), dp(7))
+                    }
+                    val close = TextView(this).apply { text = "✕"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(4), 0) }
+                    close.setOnClickListener { prefs.edit().putBoolean("hidden_${doc.id}", true).apply(); loadTodayDashboardMessages(container) }
+                    row.addView(text, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(close, LinearLayout.LayoutParams(dp(45), -2))
+                    container.addView(row)
                 }
             }
             .addOnFailureListener {
@@ -4638,7 +4635,8 @@ class MainActivity : AppCompatActivity() {
                         createCareOfListCard(
                             document.id,
                             name,
-                            address
+                            address,
+                            document.getString("createdByUid") ?: ""
                         )
 
                     card.setOnClickListener {
@@ -4672,7 +4670,8 @@ class MainActivity : AppCompatActivity() {
     private fun createCareOfListCard(
         careOfId: String,
         name: String,
-        address: String
+        address: String,
+        creatorUid: String
     ): LinearLayout {
 
         val card =
@@ -4743,40 +4742,17 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-        val editButton =
-            createSmallButton(
-                "✏ Edit"
-            )
+        val currentUid = auth.currentUser?.uid ?: ""
+        val canEditDelete = currentRole == "admin" || currentUid == creatorUid
 
-        editButton.setOnClickListener {
+        if (canEditDelete) {
+            val editButton = createSmallButton("✏ Edit")
+            editButton.setOnClickListener { showEditCareOfDialog(careOfId) }
+            buttonRow.addView(editButton)
 
-            showEditCareOfDialog(
-                careOfId
-            )
-        }
-
-        buttonRow.addView(
-            editButton
-        )
-
-        if (currentRole == "admin") {
-
-            val deleteButton =
-                createSmallButton(
-                    "🗑 Delete"
-                )
-
-            deleteButton.setOnClickListener {
-
-                confirmDeleteCareOf(
-                    careOfId,
-                    name
-                )
-            }
-
-            buttonRow.addView(
-                deleteButton
-            )
+            val deleteButton = createSmallButton("🗑 Delete")
+            deleteButton.setOnClickListener { confirmDeleteCareOf(careOfId, name) }
+            buttonRow.addView(deleteButton)
         }
 
         card.addView(buttonRow)
@@ -4817,6 +4793,12 @@ class MainActivity : AppCompatActivity() {
             .document(careOfId)
             .get()
             .addOnSuccessListener { document ->
+
+                val ownerUid = document.getString("createdByUid") ?: ""
+                if (currentRole != "admin" && ownerUid != (auth.currentUser?.uid ?: "")) {
+                    Toast.makeText(this, "এই Care Of শুধু যিনি যোগ করেছেন তিনি Edit করতে পারবেন", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
 
                 if (!document.exists()) {
 
@@ -4970,17 +4952,25 @@ class MainActivity : AppCompatActivity() {
         careOfName: String
     ) {
 
+        val currentUid = auth.currentUser?.uid ?: ""
         if (currentRole != "admin") {
-
-            Toast.makeText(
-                this,
-                "শুধুমাত্র Admin Care Of Delete করতে পারবেন",
-                Toast.LENGTH_LONG
-            ).show()
-
+            db.collection("careOf").document(careOfId).get().addOnSuccessListener { doc ->
+                if ((doc.getString("createdByUid") ?: "") != currentUid) {
+                    Toast.makeText(this, "এই Care Of শুধু যিনি যোগ করেছেন তিনি Delete করতে পারবেন", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                confirmDeleteCareOfAfterCheck(careOfId, careOfName)
+            }
             return
         }
 
+        confirmDeleteCareOfAfterCheck(careOfId, careOfName)
+    }
+
+    private fun confirmDeleteCareOfAfterCheck(
+        careOfId: String,
+        careOfName: String
+    ) {
         AlertDialog.Builder(this)
             .setTitle(
                 "Care Of Delete"
@@ -5027,14 +5017,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showAddCareOf() {
 
-        if (currentRole != "admin") {
-
-            Toast.makeText(
-                this,
-                "শুধুমাত্র Admin Care Of যোগ করতে পারবেন",
-                Toast.LENGTH_LONG
-            ).show()
-
+        if (auth.currentUser == null) {
+            Toast.makeText(this, "Login প্রয়োজন", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -5888,6 +5872,13 @@ card.addView(buttonRow)
         document: DocumentSnapshot
     ) {
 
+        val uid = auth.currentUser?.uid ?: ""
+        val owner = document.getString("createdByUid") ?: ""
+        if (currentRole != "admin" && uid != owner) {
+            Toast.makeText(this, "এই Serial শুধু যিনি দিয়েছেন তিনি Edit করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val container =
             LinearLayout(this).apply {
 
@@ -6031,6 +6022,23 @@ card.addView(buttonRow)
     // =========================================================
 
     private fun confirmDeleteSerial(
+        documentId: String
+    ) {
+
+        val uid = auth.currentUser?.uid ?: ""
+        db.collection("serials").document(documentId).get()
+            .addOnSuccessListener { doc ->
+                val owner = doc.getString("createdByUid") ?: ""
+                if (currentRole != "admin" && uid != owner) {
+                    Toast.makeText(this, "এই Serial শুধু যিনি দিয়েছেন তিনি Delete করতে পারবেন", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                showDeleteSerialConfirmation(documentId)
+            }
+            .addOnFailureListener { e -> Toast.makeText(this, "Serial যাচাই করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun showDeleteSerialConfirmation(
         documentId: String
     ) {
 
