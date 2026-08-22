@@ -1140,7 +1140,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         search.setOnClickListener {
-            showTotalSerial()
+            showSerialSearch()
         }
 
         doctors.setOnClickListener {
@@ -5683,7 +5683,306 @@ card.addView(buttonRow)
     // TOTAL SERIAL MANAGEMENT
     // =========================================================
 
-    private fun showTotalSerial() {
+    private fun showSerialSearch() {
+
+        currentScreen = SCREEN_TOTAL_SERIAL
+        setupSystemBars()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
+
+        root.addView(
+            createInnerTopBar("Total Serial") {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(30))
+        }
+
+        val heading = TextView(this).apply {
+            text = "📋 Total Serial Management"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+        }
+        content.addView(heading)
+
+        val summary = TextView(this).apply {
+            text = "Serial লোড হচ্ছে..."
+            textSize = 16f
+            setTextColor(primaryColor)
+            setPadding(0, dp(6), 0, dp(10))
+        }
+        content.addView(summary)
+
+        // ---------------------------------------------------------
+        // SEARCH
+        // ---------------------------------------------------------
+        val searchInput = createFormInput("রোগী / Serial / Doctor / Care Of খুঁজুন")
+        searchInput.inputType = InputType.TYPE_CLASS_TEXT
+        content.addView(searchInput, formParams())
+
+        // ---------------------------------------------------------
+        // DATE FILTER
+        // ---------------------------------------------------------
+        val dateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val dateButton = createPrimaryButton("📅 তারিখ নির্বাচন")
+        val allDateCheck = CheckBox(this).apply {
+            text = "সব তারিখ"
+            textSize = 16f
+            setTextColor(darkText)
+        }
+
+        dateRow.addView(
+            dateButton,
+            LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                setMargins(0, dp(4), dp(6), dp(4))
+            }
+        )
+        dateRow.addView(
+            allDateCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(54)
+            )
+        )
+        content.addView(dateRow)
+
+        val selectedDateLabel = TextView(this).apply {
+            text = "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            textSize = 15f
+            setTextColor(darkText)
+            setPadding(dp(4), 0, 0, dp(8))
+        }
+        content.addView(selectedDateLabel)
+
+        // ---------------------------------------------------------
+        // STATUS FILTER
+        // ---------------------------------------------------------
+        val statusSpinner = Spinner(this)
+        val statusOptions = arrayOf(
+            "সব Status",
+            "Waiting",
+            "Completed",
+            "Cancelled"
+        )
+        statusSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            statusOptions
+        )
+        content.addView(
+            statusSpinner,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+            ).apply {
+                setMargins(0, 0, 0, dp(8))
+            }
+        )
+
+        val refreshButton = createPrimaryButton("↻ Refresh Serial")
+        content.addView(
+            refreshButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(52)
+            ).apply {
+                setMargins(0, 0, 0, dp(10))
+            }
+        )
+
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        content.addView(listContainer)
+
+        val progress = ProgressBar(this)
+        content.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(50)
+            ).apply { gravity = Gravity.CENTER }
+        )
+
+        scroll.addView(content)
+        root.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        )
+        setContentView(root)
+
+        var allDocuments: List<DocumentSnapshot> = emptyList()
+
+        fun render() {
+            listContainer.removeAllViews()
+
+            val query = searchInput.text.toString().trim().lowercase(Locale.getDefault())
+            val statusFilter = statusOptions[statusSpinner.selectedItemPosition]
+            val useAllDates = allDateCheck.isChecked
+
+            val filtered = allDocuments.filter { doc ->
+                val date = doc.getString("createdDate") ?: ""
+                val patient = doc.getString("patient") ?: ""
+                val number = (doc.getLong("number")?.toString()
+                    ?: doc.getString("number") ?: "")
+                val doctor = doc.getString("doctorName")
+                    ?: doc.getString("doctor") ?: ""
+                val care = doc.getString("careOfName")
+                    ?: doc.getString("careOf") ?: ""
+                val careAddress = doc.getString("careOfAddress") ?: ""
+                val status = doc.getString("status") ?: "Waiting"
+
+                val dateMatch = useAllDates || date == selectedSerialDate
+                val statusMatch = statusFilter == "সব Status" || status == statusFilter
+                val searchMatch = query.isEmpty() || listOf(
+                    patient,
+                    number,
+                    doctor,
+                    care,
+                    careAddress,
+                    status
+                ).any { it.lowercase(Locale.getDefault()).contains(query) }
+
+                dateMatch && statusMatch && searchMatch
+            }.sortedWith(
+                compareByDescending<DocumentSnapshot> {
+                    it.getBoolean("patientVip") ?: false
+                }.thenByDescending {
+                    it.getString("createdDate") ?: ""
+                }.thenBy {
+                    it.getLong("number") ?: 0L
+                }
+            )
+
+            val vipCount = filtered.count {
+                it.getBoolean("patientVip") ?: false
+            }
+            val waitingCount = filtered.count {
+                (it.getString("status") ?: "Waiting") == "Waiting"
+            }
+            val completedCount = filtered.count {
+                (it.getString("status") ?: "Waiting") == "Completed"
+            }
+            val cancelledCount = filtered.count {
+                (it.getString("status") ?: "Waiting") == "Cancelled"
+            }
+
+            summary.text =
+                "মোট: ${filtered.size}   ⭐ VIP: $vipCount   ⏳ $waitingCount   ✅ $completedCount   ❌ $cancelledCount"
+
+            if (filtered.isEmpty()) {
+                listContainer.addView(
+                    createEmptyText("এই Filter অনুযায়ী কোনো Serial পাওয়া যায়নি")
+                )
+                return
+            }
+
+            filtered.forEach { document ->
+                listContainer.addView(createSerialCard(document))
+            }
+        }
+
+        fun loadSerials() {
+            progress.visibility = View.VISIBLE
+            refreshButton.isEnabled = false
+            listContainer.removeAllViews()
+            summary.text = "Serial লোড হচ্ছে..."
+
+            db.collection("serials")
+                .get()
+                .addOnSuccessListener { result ->
+                    allDocuments = result.documents
+                    progress.visibility = View.GONE
+                    refreshButton.isEnabled = true
+                    render()
+                }
+                .addOnFailureListener { error ->
+                    progress.visibility = View.GONE
+                    refreshButton.isEnabled = true
+                    summary.text = "Serial লোড করা যায়নি"
+                    Toast.makeText(
+                        this,
+                        "Total Serial পাওয়া যায়নি: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+
+        dateButton.setOnClickListener {
+            showAddSerialDatePicker {
+                selectedDateLabel.text =
+                    "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+                if (!allDateCheck.isChecked) {
+                    render()
+                }
+            }
+        }
+
+        allDateCheck.setOnCheckedChangeListener { _, checked ->
+            selectedDateLabel.visibility = if (checked) View.GONE else View.VISIBLE
+            render()
+        }
+
+        statusSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    if (allDocuments.isNotEmpty()) render()
+                }
+            }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(
+                s: CharSequence?,
+                start: Int,
+                count: Int,
+                after: Int
+            ) {}
+
+            override fun onTextChanged(
+                s: CharSequence?,
+                start: Int,
+                before: Int,
+                count: Int
+            ) {
+                if (allDocuments.isNotEmpty()) render()
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        refreshButton.setOnClickListener {
+            selectedDateLabel.text =
+                "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            loadSerials()
+        }
+
+        loadSerials()
+    }
+
+    
+private fun showTotalSerial() {
 
         currentScreen = SCREEN_TOTAL_SERIAL
         setupSystemBars()
