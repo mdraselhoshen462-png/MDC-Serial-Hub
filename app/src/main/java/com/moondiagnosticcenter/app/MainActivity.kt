@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -31,6 +32,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -75,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         private const val SCREEN_DOCTOR_LIST = "doctor_list"
         private const val SCREEN_CAREOF_LIST = "careof_list"
         private const val SCREEN_TOTAL_SERIAL = "total_serial"
+        private const val SCREEN_REPORTS = "reports"
         private const val SCREEN_DOCTOR_SERIAL = "doctor_serial"
         private const val SCREEN_CAREOF_SERIAL = "careof_serial"
         private const val SCREEN_ADD_DOCTOR = "add_doctor"
@@ -83,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
         private const val REQUEST_GALLERY = 501
         private const val REQUEST_CAMERA = 502
+        private const val REQUEST_REPORT_PDF = 503
 
         private const val MAX_IMAGE_WIDTH = 900
         private const val MAX_IMAGE_HEIGHT = 900
@@ -117,6 +121,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedAttachmentBase64: String? = null
     private var selectedAttachmentName: String = ""
     private var selectedAttachmentMimeType: String = ""
+    private var pendingReportPdfFile: java.io.File? = null
 
     private var addSerialPatientInput: EditText? = null
     private var addSerialDoctorSpinner: Spinner? = null
@@ -222,6 +227,10 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         SCREEN_TOTAL_SERIAL -> {
+                            showDashboard(currentRole)
+                        }
+
+                        SCREEN_REPORTS -> {
                             showDashboard(currentRole)
                         }
 
@@ -1152,7 +1161,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         reports.setOnClickListener {
-            showTotalSerial()
+            showReports()
         }
     }
 
@@ -2345,6 +2354,42 @@ class MainActivity : AppCompatActivity() {
         }
 
         dialog.show()
+    }
+
+    // =========================================================
+    // REPORT PDF FILE SAVE RESULT
+    // =========================================================
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != REQUEST_REPORT_PDF || resultCode != RESULT_OK) return
+
+        val source = pendingReportPdfFile
+        val destination = data?.data
+
+        if (source == null || destination == null) return
+
+        try {
+            contentResolver.openOutputStream(destination)?.use { output ->
+                source.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+            source.delete()
+            pendingReportPdfFile = null
+            Toast.makeText(
+                this,
+                "PDF সফলভাবে Save হয়েছে",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (error: Exception) {
+            Toast.makeText(
+                this,
+                "PDF Save করা যায়নি: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     // =========================================================
@@ -5982,6 +6027,458 @@ card.addView(buttonRow)
     }
 
     
+    // =========================================================
+    // REPORTS
+    // =========================================================
+
+    private fun showReports() {
+
+        currentScreen = SCREEN_REPORTS
+        setupSystemBars()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
+
+        root.addView(
+            createInnerTopBar("Reports") {
+                showDashboard(currentRole)
+            }
+        )
+
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(30))
+        }
+
+        content.addView(TextView(this).apply {
+            text = "📊 Reports"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(0, 0, 0, dp(10))
+        })
+
+        val dateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val previousDate = createSmallButton("‹ পূর্ববর্তী")
+        val dateButton = createPrimaryButton(
+            "📅 ${formatDisplayDate(selectedSerialDate)}"
+        )
+        val nextDate = createSmallButton("পরবর্তী ›")
+
+        dateRow.addView(previousDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+            setMargins(0, dp(4), dp(4), dp(6))
+        })
+        dateRow.addView(dateButton, LinearLayout.LayoutParams(0, dp(54), 1.45f).apply {
+            setMargins(dp(4), dp(4), dp(4), dp(6))
+        })
+        dateRow.addView(nextDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+            setMargins(dp(4), dp(4), 0, dp(6))
+        })
+        content.addView(dateRow)
+
+        val dateInfo = TextView(this).apply {
+            text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(primaryColor)
+            setPadding(dp(4), dp(4), dp(4), dp(8))
+        }
+        content.addView(dateInfo)
+
+        val summary = TextView(this).apply {
+            text = "রিপোর্ট লোড হচ্ছে..."
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+            setPadding(dp(4), dp(4), dp(4), dp(10))
+        }
+        content.addView(summary)
+
+        val reportContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        content.addView(reportContent)
+
+        val pdfButton = createPrimaryButton("📄 PDF Download / Save")
+        pdfButton.isEnabled = false
+        content.addView(pdfButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(56)
+        ).apply { setMargins(0, dp(14), 0, dp(8)) })
+
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+        setContentView(root)
+
+        var reportDocuments: List<DocumentSnapshot> = emptyList()
+
+        fun sortSerials(documents: List<DocumentSnapshot>): List<DocumentSnapshot> =
+            documents.sortedWith(
+                compareBy<DocumentSnapshot> { it.getLong("number") ?: 0L }
+            )
+
+        fun renderReport() {
+            val selectedDateDocs = reportDocuments.filter {
+                (it.getString("createdDate") ?: "") == selectedSerialDate
+            }
+
+            val completed = selectedDateDocs.filter {
+                (it.getString("status") ?: "Waiting").equals("Completed", true)
+            }
+            val incomplete = selectedDateDocs.filter {
+                !(it.getString("status") ?: "Waiting").equals("Completed", true)
+            }
+
+            val doctorGroups = completed
+                .groupBy {
+                    it.getString("doctorName")?.trim()
+                        ?.takeIf { name -> name.isNotEmpty() }
+                        ?: it.getString("doctor")?.trim()
+                            ?.takeIf { name -> name.isNotEmpty() }
+                        ?: "Doctor not specified"
+                }
+                .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+
+            summary.text = buildString {
+                append("আজকের মোট সিরিয়াল = ${selectedDateDocs.size} টি\n")
+                append("সম্পন্ন সিরিয়াল = ${completed.size} টি\n")
+                append("অসম্পন্ন সিরিয়াল = ${incomplete.size} টি\n")
+                append("ডাক্তারের রিপোর্ট = শুধু সম্পন্ন সিরিয়াল")
+            }
+
+            reportContent.removeAllViews()
+
+            if (selectedDateDocs.isEmpty()) {
+                reportContent.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
+            } else if (completed.isEmpty()) {
+                reportContent.addView(createEmptyText("এই তারিখে কোনো সম্পন্ন Serial নেই। Doctor-wise report দেখানোর মতো কোনো Completed Serial নেই।"))
+            } else {
+                reportContent.addView(TextView(this).apply {
+                    text = "👨‍⚕️ Doctor-wise Completed Serial"
+                    textSize = 20f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(darkText)
+                    setPadding(0, dp(8), 0, dp(8))
+                })
+
+                doctorGroups.forEach { (doctorName, documents) ->
+                    val doctorTitle = TextView(this).apply {
+                        text = "$doctorName = ${documents.size} টি"
+                        textSize = 18f
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(primaryColor)
+                        setPadding(dp(6), dp(12), dp(6), dp(8))
+                    }
+                    reportContent.addView(doctorTitle)
+
+                    val table = LinearLayout(this).apply {
+                        orientation = LinearLayout.VERTICAL
+                        background = roundedCardDrawable(Color.WHITE, dp(10))
+                        setPadding(dp(8), dp(6), dp(8), dp(6))
+                        elevation = dp(2).toFloat()
+                    }
+
+                    fun addRow(
+                        serial: String,
+                        patient: String,
+                        careOf: String,
+                        givenBy: String,
+                        header: Boolean = false
+                    ) {
+                        val row = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            setPadding(dp(4), dp(7), dp(4), dp(7))
+                            if (header) setBackgroundColor(Color.rgb(235, 242, 250))
+                        }
+
+                        fun cell(text: String, weight: Float): TextView = TextView(this).apply {
+                            this.text = text
+                            textSize = if (header) 13f else 14f
+                            typeface = if (header) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                            setTextColor(darkText)
+                            setPadding(dp(4), dp(2), dp(4), dp(2))
+                        }
+
+                        row.addView(cell(serial, 0.65f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.65f))
+                        row.addView(cell(patient, 1.25f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.25f))
+                        row.addView(cell(careOf, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
+                        row.addView(cell(givenBy, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
+                        table.addView(row)
+                    }
+
+                    addRow("Serial", "Patient", "Care Of", "Given By", true)
+
+                    sortSerials(documents).forEach { document ->
+                        val number = document.getLong("number")?.toString()
+                            ?: document.getString("number") ?: "-"
+                        val patient = document.getString("patient") ?: "-"
+                        val careOf = document.getString("careOfName")
+                            ?: document.getString("careOf") ?: "-"
+                        val givenBy = document.getString("createdByName")?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: document.getString("createdByUid")
+                            ?: "-"
+                        val role = document.getString("createdByRole")?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                        val givenByText = if (role != null) "$givenBy ($role)" else givenBy
+                        addRow(number, patient, careOf, givenByText)
+                    }
+
+                    reportContent.addView(table, LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, 0, 0, dp(12)) })
+                }
+            }
+
+            pdfButton.isEnabled = selectedDateDocs.isNotEmpty()
+            pdfButton.setOnClickListener {
+                saveReportAsPdf(selectedSerialDate, selectedDateDocs)
+            }
+        }
+
+        fun moveReportDate(days: Int) {
+            val calendar = Calendar.getInstance()
+            try {
+                val parser = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                calendar.time = parser.parse(selectedSerialDate)
+                    ?: Calendar.getInstance().time
+            } catch (_: Exception) {
+            }
+            calendar.add(Calendar.DAY_OF_MONTH, days)
+            selectedSerialDate = SimpleDateFormat(
+                "yyyy-MM-dd",
+                Locale.getDefault()
+            ).format(calendar.time)
+            dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
+            dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            renderReport()
+        }
+
+        previousDate.setOnClickListener { moveReportDate(-1) }
+        nextDate.setOnClickListener { moveReportDate(1) }
+        dateButton.setOnClickListener {
+            showAddSerialDatePicker {
+                dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
+                dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+                renderReport()
+            }
+        }
+
+        db.collection("serials")
+            .get()
+            .addOnSuccessListener { result ->
+                reportDocuments = result.documents
+                renderReport()
+            }
+            .addOnFailureListener { error ->
+                summary.text = "Report লোড করা যায়নি"
+                reportContent.removeAllViews()
+                reportContent.addView(createEmptyText("Report পাওয়া যায়নি: ${error.message}"))
+                pdfButton.isEnabled = false
+            }
+    }
+
+    // =========================================================
+    // SAVE REPORT AS PDF
+    // =========================================================
+
+    private fun saveReportAsPdf(
+        date: String,
+        documents: List<DocumentSnapshot>
+    ) {
+        if (documents.isEmpty()) {
+            Toast.makeText(
+                this,
+                "এই তারিখে PDF তৈরি করার মতো কোনো Serial নেই",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        val completed = documents.filter {
+            (it.getString("status") ?: "Waiting").equals("Completed", true)
+        }
+
+        val doctorGroups = completed
+            .groupBy {
+                it.getString("doctorName")?.trim()
+                    ?.takeIf { name -> name.isNotEmpty() }
+                    ?: it.getString("doctor")?.trim()
+                        ?.takeIf { name -> name.isNotEmpty() }
+                    ?: "Doctor not specified"
+            }
+            .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+
+        val pdf = PdfDocument()
+        val pageWidth = 595
+        val pageHeight = 842
+        val margin = 32f
+        val usableWidth = pageWidth - (margin * 2)
+
+        val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val headingPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10f
+        }
+        val smallPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8.5f
+        }
+        val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            strokeWidth = 1f
+        }
+
+        var pageNumber = 0
+        var page: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = margin
+
+        fun newPage() {
+            page?.let { pdf.finishPage(it) }
+            pageNumber++
+            val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+            page = pdf.startPage(info)
+            canvas = page!!.canvas
+            y = margin
+        }
+
+        fun ensureSpace(height: Float) {
+            if (y + height > pageHeight - margin) newPage()
+        }
+
+        fun text(value: String, x: Float, sizePaint: android.graphics.Paint = textPaint) {
+            canvas?.drawText(value, x, y, sizePaint)
+        }
+
+        fun wrapped(value: String, x: Float, maxWidth: Float, paint: android.graphics.Paint) {
+            val words = value.split(" ")
+            var line = ""
+            for (word in words) {
+                val test = if (line.isEmpty()) word else "$line $word"
+                if (paint.measureText(test) > maxWidth && line.isNotEmpty()) {
+                    ensureSpace(14f)
+                    text(line, x, paint)
+                    y += 13f
+                    line = word
+                } else {
+                    line = test
+                }
+            }
+            if (line.isNotEmpty()) {
+                ensureSpace(14f)
+                text(line, x, paint)
+                y += 13f
+            }
+        }
+
+        newPage()
+        text("Moon Diagnostic Center - Reports", margin, titlePaint)
+        y += 24f
+        text("Date: ${formatDisplayDate(date)}", margin, headingPaint)
+        y += 20f
+        text("Total Serial: ${documents.size}", margin, textPaint)
+        y += 15f
+        text("Completed Serial: ${completed.size}", margin, textPaint)
+        y += 15f
+        text("Incomplete Serial: ${documents.size - completed.size}", margin, textPaint)
+        y += 24f
+
+        if (completed.isEmpty()) {
+            text("No completed serials found for this date.", margin, headingPaint)
+            y += 20f
+        } else {
+            doctorGroups.forEach { (doctorName, doctorDocs) ->
+                ensureSpace(40f)
+                text("Doctor: $doctorName (${doctorDocs.size} completed)", margin, headingPaint)
+                y += 18f
+
+                val colX = floatArrayOf(
+                    margin,
+                    margin + usableWidth * 0.12f,
+                    margin + usableWidth * 0.39f,
+                    margin + usableWidth * 0.66f
+                )
+                val headers = listOf("Serial", "Patient", "Care Of", "Given By")
+                ensureSpace(20f)
+                headers.forEachIndexed { index, header ->
+                    text(header, colX[index], smallPaint)
+                }
+                y += 11f
+                canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
+                y += 12f
+
+                doctorDocs.sortedBy { it.getLong("number") ?: 0L }.forEach { document ->
+                    ensureSpace(34f)
+                    val number = document.getLong("number")?.toString()
+                        ?: document.getString("number") ?: "-"
+                    val patient = document.getString("patient") ?: "-"
+                    val careOf = document.getString("careOfName")
+                        ?: document.getString("careOf") ?: "-"
+                    val givenBy = document.getString("createdByName")?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: document.getString("createdByUid") ?: "-"
+                    val role = document.getString("createdByRole")?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    val giver = if (role != null) "$givenBy ($role)" else givenBy
+
+                    text(number, colX[0], smallPaint)
+                    wrapped(patient, colX[1], usableWidth * 0.24f, smallPaint)
+                    val patientLines = maxOf(1, (smallPaint.measureText(patient) / (usableWidth * 0.24f)).toInt() + 1)
+                    val rowHeight = 13f * patientLines
+                    text(careOf, colX[2], smallPaint)
+                    wrapped(giver, colX[3], usableWidth * 0.30f, smallPaint)
+                    y += maxOf(13f, rowHeight)
+                    canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
+                    y += 8f
+                }
+                y += 8f
+            }
+        }
+
+        page?.let { pdf.finishPage(it) }
+
+        val fileName = "MDC_Report_${date}.pdf"
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_TITLE, fileName)
+        }
+
+        val tempFile = java.io.File(cacheDir, fileName)
+        try {
+            FileOutputStream(tempFile).use { output ->
+                pdf.writeTo(output)
+            }
+            pdf.close()
+            pendingReportPdfFile = tempFile
+            startActivityForResult(intent, REQUEST_REPORT_PDF)
+        } catch (error: Exception) {
+            pdf.close()
+            Toast.makeText(
+                this,
+                "PDF তৈরি করা যায়নি: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private fun showTotalSerial() {
 
         currentScreen = SCREEN_TOTAL_SERIAL
