@@ -2357,42 +2357,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================
-    // REPORT PDF FILE SAVE RESULT
-    // =========================================================
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode != REQUEST_REPORT_PDF || resultCode != RESULT_OK) return
-
-        val source = pendingReportPdfFile
-        val destination = data?.data
-
-        if (source == null || destination == null) return
-
-        try {
-            contentResolver.openOutputStream(destination)?.use { output ->
-                source.inputStream().use { input ->
-                    input.copyTo(output)
-                }
-            }
-            source.delete()
-            pendingReportPdfFile = null
-            Toast.makeText(
-                this,
-                "PDF সফলভাবে Save হয়েছে",
-                Toast.LENGTH_LONG
-            ).show()
-        } catch (error: Exception) {
-            Toast.makeText(
-                this,
-                "PDF Save করা যায়নি: ${error.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // =========================================================
     // DATE PICKER FOR ADD SERIAL
     // =========================================================
 
@@ -2875,6 +2839,37 @@ class MainActivity : AppCompatActivity() {
         )
 
         if (resultCode != RESULT_OK) {
+            return
+        }
+
+        if (requestCode == REQUEST_REPORT_PDF) {
+
+            val source = pendingReportPdfFile
+            val destination = data?.data
+
+            if (resultCode == RESULT_OK && source != null && destination != null) {
+                try {
+                    contentResolver.openOutputStream(destination)?.use { output ->
+                        source.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    source.delete()
+                    pendingReportPdfFile = null
+                    Toast.makeText(
+                        this,
+                        "PDF সফলভাবে Save হয়েছে",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this,
+                        "PDF Save করা যায়নি: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
             return
         }
 
