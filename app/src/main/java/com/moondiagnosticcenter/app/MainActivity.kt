@@ -7950,6 +7950,10 @@ card.addView(buttonRow)
 
     private fun showAdminControlPanel() {
         if (currentRole != "admin") {
+            Toast.makeText(this, "শুধু Admin Control Panel ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (currentRole != "admin") {
             Toast.makeText(this, "শুধুমাত্র Admin এই পেজ ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
             return
         }
@@ -8010,6 +8014,10 @@ card.addView(buttonRow)
     // =========================================================
 
     private fun showUserManagement() {
+        if (currentRole != "admin") {
+            Toast.makeText(this, "শুধু Admin User Management ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
         if (currentRole != "admin") {
             Toast.makeText(this, "শুধুমাত্র Admin User Management ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
             return
@@ -8130,6 +8138,10 @@ card.addView(buttonRow)
     // =========================================================
 
     private fun showSettings() {
+        if (currentRole != "admin") {
+            Toast.makeText(this, "শুধু Admin Settings ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
         setupSystemBars()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
         root.addView(createInnerTopBar("Settings") { showDashboard(currentRole) })
@@ -8292,25 +8304,30 @@ card.addView(buttonRow)
             }
         }
 
-        navigationView.menu.add(
-            "User Management"
-        ).apply {
+        // User Management is an Admin-only management area.
+        if (role == "admin") {
+            navigationView.menu.add(
+                "User Management"
+            ).apply {
 
-            setIcon(
-                android.R.drawable.ic_menu_myplaces
-            )
-
-            setOnMenuItemClickListener {
-
-                drawerLayout.closeDrawer(
-                    Gravity.START
+                setIcon(
+                    android.R.drawable.ic_menu_myplaces
                 )
 
-                showUserManagement()
-                true
+                setOnMenuItemClickListener {
+
+                    drawerLayout.closeDrawer(
+                        Gravity.START
+                    )
+
+                    showUserManagement()
+                    true
+                }
             }
         }
 
+        // Everyone may open the Notification screen, but only Admin sees
+        // the create button; Firestore rules enforce Admin-only writes.
         navigationView.menu.add(
             "Notifications"
         ).apply {
@@ -8330,22 +8347,25 @@ card.addView(buttonRow)
             }
         }
 
-        navigationView.menu.add(
-            "Settings"
-        ).apply {
+        // Settings is an Admin-only configuration area.
+        if (role == "admin") {
+            navigationView.menu.add(
+                "Settings"
+            ).apply {
 
-            setIcon(
-                android.R.drawable.ic_menu_preferences
-            )
-
-            setOnMenuItemClickListener {
-
-                drawerLayout.closeDrawer(
-                    Gravity.START
+                setIcon(
+                    android.R.drawable.ic_menu_preferences
                 )
 
-                showSettings()
-                true
+                setOnMenuItemClickListener {
+
+                    drawerLayout.closeDrawer(
+                        Gravity.START
+                    )
+
+                    showSettings()
+                    true
+                }
             }
         }
 
