@@ -1209,7 +1209,7 @@ class MainActivity : AppCompatActivity() {
                         text = if (sender.isBlank()) message else "$message\n— $sender"
                         textSize = 15f; setTextColor(Color.WHITE); setPadding(0, dp(7), dp(8), dp(7))
                     }
-                    val close = TextView(this).apply { text = "✕"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(4), 0) }
+                    val close = TextView(this).apply { this.text = "✕"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(4), 0) }
                     close.setOnClickListener { prefs.edit().putBoolean("hidden_${doc.id}", true).apply(); loadTodayDashboardMessages(container) }
                     row.addView(text, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(close, LinearLayout.LayoutParams(dp(45), -2))
                     container.addView(row)
