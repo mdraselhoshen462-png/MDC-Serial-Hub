@@ -27,6 +27,7 @@ import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -5712,6 +5713,31 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
+        // Show exactly who marked this serial as Completed.
+        // This is displayed only while the current status is Completed.
+        if (status.equals("Completed", true)) {
+            val completedByName =
+                document.getString("completedByName")
+                    ?: document.getString("completedBy")
+                    ?: "-"
+            val completedByRole =
+                document.getString("completedByRole")
+                    ?: ""
+            val completedByText =
+                if (completedByRole.isBlank()) {
+                    completedByName
+                } else {
+                    "$completedByName ($completedByRole)"
+                }
+
+            card.addView(
+                createInfoText(
+                    "✅ Completed By",
+                    completedByText
+                )
+            )
+        }
+
         val buttonRow =
             LinearLayout(this).apply {
 
@@ -6101,12 +6127,29 @@ card.addView(buttonRow)
                 val selected =
                     statuses[which]
 
+                val currentUser = auth.currentUser
+                if (currentUser == null) {
+                    Toast.makeText(this, "Login প্রয়োজন", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                    return@setSingleChoiceItems
+                }
+
+                val updateData = mutableMapOf<String, Any>(
+                    "status" to selected
+                )
+
+                // Whenever a serial is marked Completed, record the exact
+                // Firebase user who performed the completion.
+                if (selected.equals("Completed", true)) {
+                    updateData["completedByUid"] = currentUser.uid
+                    updateData["completedByName"] = currentUserDisplayName
+                    updateData["completedByRole"] = currentRole
+                    updateData["completedAt"] = FieldValue.serverTimestamp()
+                }
+
                 db.collection("serials")
                     .document(documentId)
-                    .update(
-                        "status",
-                        selected
-                    )
+                    .update(updateData)
                     .addOnSuccessListener {
 
                         Toast.makeText(
@@ -8049,9 +8092,18 @@ card.addView(buttonRow)
             textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText)
         })
         content.addView(TextView(this).apply {
-            text = "Firebase Authentication account তৈরি/পাসওয়ার্ড পরিবর্তন করতে Firebase Console ব্যবহার করুন। এখানে profile, role এবং active status পরিচালনা করা যাবে।"
-            textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(14))
+            text = "এখান থেকেই সরাসরি User / Operator account তৈরি করা যাবে। Firebase Console-এ আলাদা করে account তৈরি করার দরকার নেই।"
+            textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(10))
         })
+
+        content.addView(
+            createPrimaryButton("＋  নতুন User / Operator তৈরি করুন").apply {
+                setOnClickListener { showCreateUserDialog() }
+            },
+            LinearLayout.LayoutParams(-1, dp(58)).apply {
+                setMargins(0, 0, 0, dp(14))
+            }
+        )
 
         db.collection("users").get().addOnSuccessListener { result ->
             if (result.isEmpty) {
@@ -8089,6 +8141,190 @@ card.addView(buttonRow)
         }.addOnFailureListener { e -> content.addView(createEmptyText("User List পাওয়া যায়নি: ${e.message}")) }
 
         scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
+    }
+
+    // =========================================================
+    // CREATE USER / OPERATOR DIRECTLY FROM ADMIN APP
+    // =========================================================
+
+    private fun showCreateUserDialog() {
+        if (currentRole != "admin") {
+            Toast.makeText(this, "শুধু Admin নতুন User / Operator তৈরি করতে পারবেন", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+        }
+
+        val nameInput = createFormInput("নাম")
+        val emailInput = createFormInput("Login Email")
+        emailInput.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        val passwordInput = createFormInput("Temporary Password (কমপক্ষে 6 অক্ষর)")
+        passwordInput.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val roleSpinner = Spinner(this)
+        val roles = arrayOf("user", "operator")
+        roleSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            roles.map { if (it == "operator") "Operator" else "User" }
+        )
+
+        box.addView(TextView(this).apply {
+            text = "নাম"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        box.addView(nameInput, formParams())
+        box.addView(TextView(this).apply {
+            text = "Login Email"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        box.addView(emailInput, formParams())
+        box.addView(TextView(this).apply {
+            text = "Password"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        box.addView(passwordInput, formParams())
+        box.addView(TextView(this).apply {
+            text = "Role"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(8), 0, dp(4))
+        })
+        box.addView(roleSpinner, LinearLayout.LayoutParams(-1, dp(55)))
+
+        AlertDialog.Builder(this)
+            .setTitle("নতুন User / Operator")
+            .setView(box)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val name = nameInput.text.toString().trim()
+                        val email = emailInput.text.toString().trim()
+                        val password = passwordInput.text.toString()
+                        val role = if (roleSpinner.selectedItemPosition == 1) "operator" else "user"
+
+                        if (name.isEmpty()) {
+                            nameInput.error = "নাম দিন"
+                            return@setOnClickListener
+                        }
+                        if (email.isEmpty() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                            emailInput.error = "সঠিক Email দিন"
+                            return@setOnClickListener
+                        }
+                        if (password.length < 6) {
+                            passwordInput.error = "Password কমপক্ষে 6 অক্ষরের হতে হবে"
+                            return@setOnClickListener
+                        }
+
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+                        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
+                        Toast.makeText(this, "Account তৈরি হচ্ছে...", Toast.LENGTH_SHORT).show()
+
+                        createAuthUserFromAdmin(name, email, password, role, dialog)
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun createAuthUserFromAdmin(
+        name: String,
+        email: String,
+        password: String,
+        role: String,
+        dialog: AlertDialog
+    ) {
+        val primaryAdminUid = auth.currentUser?.uid
+        if (primaryAdminUid == null) {
+            dialog.dismiss()
+            Toast.makeText(this, "Admin session পাওয়া যায়নি", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        try {
+            val primaryApp = FirebaseApp.getInstance()
+            val secondaryAppName = "MDC_USER_CREATOR"
+            val secondaryApp = try {
+                FirebaseApp.getInstance(secondaryAppName)
+            } catch (_: Exception) {
+                FirebaseApp.initializeApp(this, primaryApp.options, secondaryAppName)
+                    ?: throw IllegalStateException("Secondary FirebaseApp initialize করা যায়নি")
+            }
+
+            val secondaryAuth = FirebaseAuth.getInstance(secondaryApp)
+            secondaryAuth.createUserWithEmailAndPassword(email, password)
+                .addOnSuccessListener { authResult ->
+                    val newUser = authResult.user
+                    if (newUser == null) {
+                        dialog.dismiss()
+                        Toast.makeText(this, "Firebase account তৈরি হয়নি", Toast.LENGTH_LONG).show()
+                        return@addOnSuccessListener
+                    }
+
+                    val uid = newUser.uid
+                    val profile = hashMapOf<String, Any>(
+                        "name" to name,
+                        "email" to email,
+                        "role" to role,
+                        "active" to true,
+                        "createdByUid" to primaryAdminUid,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+
+                    // Primary FirebaseAuth session remains the Admin session;
+                    // only the secondary FirebaseApp creates the new account.
+                    db.collection("users").document(uid).set(profile)
+                        .addOnSuccessListener {
+                            secondaryAuth.signOut()
+                            dialog.dismiss()
+                            Toast.makeText(
+                                this,
+                                "$name ($role) সফলভাবে তৈরি হয়েছে। এখন ওই Email ও Password দিয়ে Login করা যাবে।",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            showUserManagement()
+                        }
+                        .addOnFailureListener { error ->
+                            // Roll back the Auth account if the profile write fails.
+                            newUser.delete()
+                                .addOnCompleteListener {
+                                    secondaryAuth.signOut()
+                                    dialog.dismiss()
+                                    Toast.makeText(
+                                        this,
+                                        "User profile তৈরি করা যায়নি: ${error.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                        }
+                }
+                .addOnFailureListener { error ->
+                    dialog.dismiss()
+                    Toast.makeText(
+                        this,
+                        "Firebase account তৈরি ব্যর্থ: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        } catch (error: Exception) {
+            dialog.dismiss()
+            Toast.makeText(
+                this,
+                "Account creation setup ব্যর্থ: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun showRoleChangeDialog(uid: String, current: String) {
