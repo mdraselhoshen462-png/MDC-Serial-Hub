@@ -29,6 +29,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -56,6 +57,12 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var auth: FirebaseAuth
     private val db = FirebaseFirestore.getInstance()
+
+    private val activeListeners = mutableListOf<ListenerRegistration>()
+    private var lastListTitle = ""
+    private var lastListFilterField = ""
+    private var lastListFilterValue = ""
+    private var lastListDate = ""
 
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var navigationView: NavigationView
@@ -655,8 +662,32 @@ class MainActivity : AppCompatActivity() {
     // DASHBOARD
     // =========================================================
 
+    private fun clearActiveListeners() {
+        activeListeners.forEach { it.remove() }
+        activeListeners.clear()
+    }
+
+    private fun refreshCurrentScreen() {
+        when (currentScreen) {
+            SCREEN_DASHBOARD -> showDashboard(currentRole)
+            SCREEN_TOTAL_SERIAL -> showTotalSerial()
+            SCREEN_REPORTS -> showReports()
+            SCREEN_DOCTOR_LIST -> showDoctorList()
+            SCREEN_CAREOF_LIST -> showCareOfList()
+            SCREEN_DOCTOR_SERIAL, SCREEN_CAREOF_SERIAL -> {
+                if (lastListFilterField.isNotEmpty()) {
+                    showSerialListPage(lastListTitle, lastListFilterField, lastListFilterValue, lastListDate)
+                } else {
+                    showDashboard(currentRole)
+                }
+            }
+            else -> showDashboard(currentRole)
+        }
+    }
+
     private fun showDashboard(role: String) {
 
+        clearActiveListeners()
         currentScreen = SCREEN_DASHBOARD
 
         setupSystemBars()
@@ -791,6 +822,15 @@ class MainActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
         )
+
+        val refreshButton = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_popup_sync)
+            setBackgroundColor(Color.TRANSPARENT)
+            setColorFilter(Color.WHITE)
+            contentDescription = "Refresh"
+            setOnClickListener { refreshCurrentScreen() }
+        }
+        topBar.addView(refreshButton, LinearLayout.LayoutParams(dp(56), dp(56)))
 
         mainLayout.addView(
             topBar,
@@ -987,6 +1027,28 @@ class MainActivity : AppCompatActivity() {
         )
 
         content.addView(summaryRow)
+
+        activeListeners.add(
+            db.collection("serials").addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                var waiting = 0
+                var completed = 0
+                var cancelled = 0
+                snapshot.documents.forEach { doc ->
+                    when (doc.getString("status") ?: "Waiting") {
+                        "Completed" -> completed++
+                        "Cancelled" -> cancelled++
+                        else -> waiting++
+                    }
+                }
+                val values = listOf(snapshot.size(), waiting, completed, cancelled)
+                values.forEachIndexed { index, value ->
+                    val card = summaryRow.getChildAt(index) as? LinearLayout ?: return@forEachIndexed
+                    val valueView = card.getChildAt(1) as? TextView ?: return@forEachIndexed
+                    valueView.text = value.toString()
+                }
+            }
+        )
 
         val quickTitle =
             TextView(this).apply {
@@ -5352,191 +5414,69 @@ class MainActivity : AppCompatActivity() {
         filterValue: String,
         date: String
     ) {
-
-        if (filterField == "doctorId") {
-
-            currentScreen =
-                SCREEN_DOCTOR_SERIAL
-
-        } else {
-
-            currentScreen =
-                SCREEN_CAREOF_SERIAL
-        }
-
+        clearActiveListeners()
+        lastListTitle = title
+        lastListFilterField = filterField
+        lastListFilterValue = filterValue
+        lastListDate = date
+        currentScreen = if (filterField == "doctorId") SCREEN_DOCTOR_SERIAL else SCREEN_CAREOF_SERIAL
         setupSystemBars()
 
-        val root =
-            LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(backgroundColor)
+        }
+        root.addView(createInnerTopBar("Serial List") {
+            if (filterField == "doctorId") showDoctorList() else showCareOfList()
+        })
 
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        root.addView(
-            createInnerTopBar(
-                "Serial List"
-            ) {
-
-                if (
-                    filterField == "doctorId"
-                ) {
-                    showDoctorList()
-                } else {
-                    showCareOfList()
-                }
-            }
-        )
-
-        val scroll =
-            ScrollView(this)
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(14),
-                    dp(14),
-                    dp(14),
-                    dp(30)
-                )
-            }
-
-        val titleText =
-            TextView(this).apply {
-
-                text = title
-
-                textSize = 22f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-            }
-
-        content.addView(titleText)
-
-        val dateText =
-            TextView(this).apply {
-
-                text =
-                    "📅 তারিখ: ${formatDisplayDate(date)}"
-
-                textSize = 17f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    primaryColor
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(15)
-                )
-            }
-
-        content.addView(dateText)
-
-        val progress =
-            ProgressBar(this)
-
-        content.addView(
-            progress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(50)
-            ).apply {
-                gravity =
-                    Gravity.CENTER
-            }
-        )
-
+        val scroll = ScrollView(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(30))
+        }
+        content.addView(TextView(this).apply {
+            text = title
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(darkText)
+        })
+        content.addView(TextView(this).apply {
+            text = "📅 তারিখ: ${formatDisplayDate(date)}"
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(primaryColor)
+            setPadding(dp(5), dp(5), dp(5), dp(15))
+        })
+        val progress = ProgressBar(this)
+        content.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(50)).apply { gravity = Gravity.CENTER })
+        val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(listContainer)
         scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
-        db.collection("serials")
-            .whereEqualTo(
-                filterField,
-                filterValue
-            )
-            .whereEqualTo(
-                "createdDate",
-                date
-            )
-            .get()
-            .addOnSuccessListener { result ->
-
-                progress.visibility =
-                    View.GONE
-
-                if (result.isEmpty) {
-
-                    content.addView(
-                        createEmptyText(
-                            "এই তারিখে কোনো Serial পাওয়া যায়নি"
-                        )
-                    )
-
-                    return@addOnSuccessListener
-                }
-
-                val serials =
+        activeListeners.add(
+            db.collection("serials")
+                .whereEqualTo(filterField, filterValue)
+                .whereEqualTo("createdDate", date)
+                .addSnapshotListener { result, error ->
+                    progress.visibility = View.GONE
+                    listContainer.removeAllViews()
+                    if (error != null || result == null) {
+                        if (error != null) Toast.makeText(this, "Serial List পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
+                        return@addSnapshotListener
+                    }
+                    if (result.isEmpty) {
+                        listContainer.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
+                        return@addSnapshotListener
+                    }
                     result.documents.sortedWith(
-                        compareByDescending<DocumentSnapshot> {
-                            it.getBoolean(
-                                "patientVip"
-                            ) ?: false
-                        }.thenBy {
-                            it.getLong(
-                                "number"
-                            ) ?: 0L
-                        }
-                    )
-
-                for (document in serials) {
-
-                    content.addView(
-                        createSerialCard(
-                            document
-                        )
-                    )
+                        compareByDescending<DocumentSnapshot> { it.getBoolean("patientVip") ?: false }
+                            .thenBy { it.getLong("number") ?: 0L }
+                    ).forEach { listContainer.addView(createSerialCard(it)) }
                 }
-            }
-            .addOnFailureListener { error ->
-
-                progress.visibility =
-                    View.GONE
-
-                Toast.makeText(
-                    this,
-                    "Serial List পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+        )
     }
 
     // =========================================================
@@ -6451,6 +6391,7 @@ card.addView(buttonRow)
 
     private fun showReports() {
 
+        clearActiveListeners()
         currentScreen = SCREEN_REPORTS
         setupSystemBars()
 
@@ -6694,18 +6635,19 @@ card.addView(buttonRow)
             }
         }
 
-        db.collection("serials")
-            .get()
-            .addOnSuccessListener { result ->
+        activeListeners.add(
+            db.collection("serials").addSnapshotListener { result, error ->
+                if (error != null || result == null) {
+                    summary.text = "Report লোড করা যায়নি"
+                    reportContent.removeAllViews()
+                    reportContent.addView(createEmptyText("Report পাওয়া যায়নি: ${error?.message ?: "Unknown error"}"))
+                    pdfButton.isEnabled = false
+                    return@addSnapshotListener
+                }
                 reportDocuments = result.documents
                 renderReport()
             }
-            .addOnFailureListener { error ->
-                summary.text = "Report লোড করা যায়নি"
-                reportContent.removeAllViews()
-                reportContent.addView(createEmptyText("Report পাওয়া যায়নি: ${error.message}"))
-                pdfButton.isEnabled = false
-            }
+        )
     }
 
     // =========================================================
@@ -6830,10 +6772,10 @@ card.addView(buttonRow)
                 val colX = floatArrayOf(
                     margin,
                     margin + usableWidth * 0.12f,
-                    margin + usableWidth * 0.39f,
-                    margin + usableWidth * 0.66f
+                    margin + usableWidth * 0.38f,
+                    margin + usableWidth * 0.70f
                 )
-                val headers = listOf("Serial", "Patient", "Care Of", "Given By")
+                val headers = listOf("Serial", "Patient", "Care Of / Address", "Given By")
                 ensureSpace(20f)
                 headers.forEachIndexed { index, header ->
                     text(header, colX[index], smallPaint)
@@ -6847,8 +6789,10 @@ card.addView(buttonRow)
                     val number = document.getLong("number")?.toString()
                         ?: document.getString("number") ?: "-"
                     val patient = document.getString("patient") ?: "-"
-                    val careOf = document.getString("careOfName")
+                    val careOfName = document.getString("careOfName")
                         ?: document.getString("careOf") ?: "-"
+                    val careOfAddress = document.getString("careOfAddress") ?: ""
+                    val careOf = if (careOfAddress.isBlank()) careOfName else "$careOfName / $careOfAddress"
                     val givenBy = document.getString("createdByName")?.trim()
                         ?.takeIf { it.isNotEmpty() }
                         ?: document.getString("createdByUid") ?: "-"
@@ -6899,6 +6843,7 @@ card.addView(buttonRow)
 
     private fun showTotalSerial() {
 
+        clearActiveListeners()
         currentScreen = SCREEN_TOTAL_SERIAL
         setupSystemBars()
 
@@ -7209,23 +7154,21 @@ card.addView(buttonRow)
             layer1Summary.text = "Serial লোড হচ্ছে..."
             layer2Summary.text = "আমার Serial লোড হচ্ছে..."
 
-            db.collection("serials")
-                .get()
-                .addOnSuccessListener { result ->
-                    allDocuments = result.documents
-                    progress.visibility = View.GONE
-                    renderAllLayers()
-                }
-                .addOnFailureListener { error ->
-                    progress.visibility = View.GONE
-                    layer1Summary.text = "Serial লোড করা যায়নি"
-                    layer2Summary.text = "Serial লোড করা যায়নি"
-                    Toast.makeText(
-                        this,
-                        "Total Serial পাওয়া যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            activeListeners.add(
+                db.collection("serials")
+                    .addSnapshotListener { result, error ->
+                        if (error != null || result == null) {
+                            progress.visibility = View.GONE
+                            layer1Summary.text = "Serial লোড করা যায়নি"
+                            layer2Summary.text = "Serial লোড করা যায়নি"
+                            if (error != null) Toast.makeText(this, "Total Serial পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
+                            return@addSnapshotListener
+                        }
+                        allDocuments = result.documents
+                        progress.visibility = View.GONE
+                        renderAllLayers()
+                    }
+            )
         }
 
         fun moveDate(days: Int) {
@@ -7420,6 +7363,15 @@ card.addView(buttonRow)
                 1f
             )
         )
+
+        val refresh = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_popup_sync)
+            setBackgroundColor(Color.TRANSPARENT)
+            setColorFilter(Color.WHITE)
+            contentDescription = "Refresh"
+            setOnClickListener { refreshCurrentScreen() }
+        }
+        bar.addView(refresh, LinearLayout.LayoutParams(dp(56), dp(56)))
 
         return bar.apply {
 
@@ -8391,4 +8343,9 @@ card.addView(buttonRow)
             }
         }
     }
+    override fun onDestroy() {
+        clearActiveListeners()
+        super.onDestroy()
+    }
+
 }
