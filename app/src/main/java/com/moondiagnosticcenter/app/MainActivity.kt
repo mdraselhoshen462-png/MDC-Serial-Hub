@@ -5489,11 +5489,14 @@ class MainActivity : AppCompatActivity() {
                         if (error != null) Toast.makeText(this, "Serial List পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
                         return@addSnapshotListener
                     }
-                    if (result.isEmpty) {
+                    val visibleDocuments = result.documents.filterNot {
+                        (it.getString("status") ?: "Waiting") == "Cancelled"
+                    }
+                    if (visibleDocuments.isEmpty()) {
                         listContainer.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
                         return@addSnapshotListener
                     }
-                    result.documents.sortedWith(
+                    visibleDocuments.sortedWith(
                         compareByDescending<DocumentSnapshot> { it.getBoolean("patientVip") ?: false }
                             .thenBy { it.getLong("number") ?: 0L }
                     ).forEach { listContainer.addView(createSerialCard(it)) }
@@ -5772,6 +5775,30 @@ class MainActivity : AppCompatActivity() {
             createSmallButton(
                 "📌 $status"
             )
+
+        when (status) {
+            "Completed" -> {
+                statusButton.background = roundedCardDrawable(
+                    Color.rgb(46, 125, 50),
+                    dp(10)
+                )
+                statusButton.setTextColor(Color.WHITE)
+            }
+            "Waiting" -> {
+                statusButton.background = roundedCardDrawable(
+                    Color.rgb(198, 40, 40),
+                    dp(10)
+                )
+                statusButton.setTextColor(Color.WHITE)
+            }
+            else -> {
+                statusButton.background = roundedCardDrawable(
+                    Color.rgb(117, 117, 117),
+                    dp(10)
+                )
+                statusButton.setTextColor(Color.WHITE)
+            }
+        }
 
         statusButton.setOnClickListener {
             showStatusDialog(document.id, status)
@@ -6338,7 +6365,9 @@ card.addView(buttonRow)
             db.collection("serials")
                 .get()
                 .addOnSuccessListener { result ->
-                    allDocuments = result.documents
+                    allDocuments = result.documents.filterNot {
+                        (it.getString("status") ?: "Waiting") == "Cancelled"
+                    }
                     progress.visibility = View.GONE
                     render()
                 }
@@ -7103,6 +7132,7 @@ card.addView(buttonRow)
             val selectedNameRole = selected.second
 
             val selectedSerials = dateDocuments.filter {
+                (it.getString("status") ?: "Waiting") != "Cancelled" &&
                 (it.getString("createdByUid") ?: "") == selectedUid
             }.sortedWith(
                 compareByDescending<DocumentSnapshot> {
@@ -7127,6 +7157,7 @@ card.addView(buttonRow)
 
         fun renderAllLayers() {
             val dateDocuments = allDocuments.filter {
+                (it.getString("status") ?: "Waiting") != "Cancelled" &&
                 (it.getString("createdDate") ?: "") == selectedSerialDate
             }.sortedWith(
                 compareByDescending<DocumentSnapshot> {
@@ -7202,7 +7233,9 @@ card.addView(buttonRow)
                             if (error != null) Toast.makeText(this, "Total Serial পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
                             return@addSnapshotListener
                         }
-                        allDocuments = result.documents
+                        allDocuments = result.documents.filterNot {
+                            (it.getString("status") ?: "Waiting") == "Cancelled"
+                        }
                         progress.visibility = View.GONE
                         renderAllLayers()
                     }
