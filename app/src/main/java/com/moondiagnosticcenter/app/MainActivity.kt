@@ -17,6 +17,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
@@ -38,6 +39,32 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+
+private class PullToRefreshScrollView(context: android.content.Context) : ScrollView(context) {
+    var onPullToRefresh: (() -> Unit)? = null
+    private var downY = 0f
+    private var triggered = false
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downY = event.rawY
+                triggered = false
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val pulledDistance = event.rawY - downY
+                val threshold = 110f * resources.displayMetrics.density
+                if (event.actionMasked == MotionEvent.ACTION_UP &&
+                    scrollY <= 0 && pulledDistance >= threshold && !triggered) {
+                    triggered = true
+                    onPullToRefresh?.invoke()
+                }
+                downY = 0f
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -823,14 +850,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        val refreshButton = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_popup_sync)
-            setBackgroundColor(Color.TRANSPARENT)
-            setColorFilter(Color.WHITE)
-            contentDescription = "Refresh"
-            setOnClickListener { refreshCurrentScreen() }
-        }
-        topBar.addView(refreshButton, LinearLayout.LayoutParams(dp(56), dp(56)))
 
         mainLayout.addView(
             topBar,
@@ -841,8 +860,9 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scrollView =
-            ScrollView(this).apply {
+            PullToRefreshScrollView(this).apply {
                 isFillViewport = true
+                onPullToRefresh = { refreshCurrentScreen() }
             }
 
         val content =
@@ -1290,7 +1310,7 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(createInnerTopBar("💬 Message") { showDashboard(currentRole) })
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(30))
@@ -1363,6 +1383,7 @@ class MainActivity : AppCompatActivity() {
             }
 
         scroll.addView(content)
+        scroll.onPullToRefresh = { refreshCurrentScreen() }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
@@ -1496,7 +1517,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scroll =
-            ScrollView(this).apply {
+            PullToRefreshScrollView(this).apply {
                 isFillViewport = true
             }
 
@@ -3619,7 +3640,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scroll =
-            ScrollView(this)
+            PullToRefreshScrollView(this)
 
         val content =
             LinearLayout(this).apply {
@@ -3876,7 +3897,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scroll =
-            ScrollView(this)
+            PullToRefreshScrollView(this)
 
         val content =
             LinearLayout(this).apply {
@@ -4582,7 +4603,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scroll =
-            ScrollView(this)
+            PullToRefreshScrollView(this)
 
         val content =
             LinearLayout(this).apply {
@@ -5108,7 +5129,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         val scroll =
-            ScrollView(this)
+            PullToRefreshScrollView(this)
 
         val content =
             LinearLayout(this).apply {
@@ -5430,7 +5451,7 @@ class MainActivity : AppCompatActivity() {
             if (filterField == "doctorId") showDoctorList() else showCareOfList()
         })
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(30))
@@ -5453,6 +5474,7 @@ class MainActivity : AppCompatActivity() {
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(listContainer)
         scroll.addView(content)
+        scroll.onPullToRefresh = { refreshCurrentScreen() }
         root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
@@ -5484,7 +5506,8 @@ class MainActivity : AppCompatActivity() {
     // =========================================================
 
     private fun createSerialCard(
-        document: DocumentSnapshot
+        document: DocumentSnapshot,
+        displayNumber: Long? = null
     ): LinearLayout {
 
         val isVip =
@@ -5524,8 +5547,9 @@ class MainActivity : AppCompatActivity() {
             }
 
         val number =
-            document.getLong("number")
-                ?.toString()
+            displayNumber?.toString()
+                ?: document.getLong("number")
+                    ?.toString()
                 ?: document.getString(
                     "number"
                 )
@@ -6088,6 +6112,11 @@ card.addView(buttonRow)
 
     private fun showSerialSearch() {
 
+        selectedSerialDate = SimpleDateFormat(
+            "yyyy-MM-dd",
+            Locale.getDefault()
+        ).format(Calendar.getInstance().time)
+
         currentScreen = SCREEN_TOTAL_SERIAL
         setupSystemBars()
 
@@ -6102,7 +6131,7 @@ card.addView(buttonRow)
             }
         )
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(30))
@@ -6191,17 +6220,6 @@ card.addView(buttonRow)
                 dp(52)
             ).apply {
                 setMargins(0, 0, 0, dp(8))
-            }
-        )
-
-        val refreshButton = createPrimaryButton("↻ Refresh Serial")
-        content.addView(
-            refreshButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
-            ).apply {
-                setMargins(0, 0, 0, dp(10))
             }
         )
 
@@ -6296,14 +6314,24 @@ card.addView(buttonRow)
                 return
             }
 
-            filtered.forEach { document ->
-                listContainer.addView(createSerialCard(document))
+            if (useAllDates) {
+                filtered.forEach { document ->
+                    listContainer.addView(createSerialCard(document))
+                }
+            } else {
+                filtered.forEachIndexed { index, document ->
+                    listContainer.addView(
+                        createSerialCard(
+                            document,
+                            displayNumber = (index + 1).toLong()
+                        )
+                    )
+                }
             }
         }
 
         fun loadSerials() {
             progress.visibility = View.VISIBLE
-            refreshButton.isEnabled = false
             listContainer.removeAllViews()
             summary.text = "Serial লোড হচ্ছে..."
 
@@ -6312,12 +6340,10 @@ card.addView(buttonRow)
                 .addOnSuccessListener { result ->
                     allDocuments = result.documents
                     progress.visibility = View.GONE
-                    refreshButton.isEnabled = true
                     render()
                 }
                 .addOnFailureListener { error ->
                     progress.visibility = View.GONE
-                    refreshButton.isEnabled = true
                     summary.text = "Serial লোড করা যায়নি"
                     Toast.makeText(
                         this,
@@ -6375,12 +6401,6 @@ card.addView(buttonRow)
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        refreshButton.setOnClickListener {
-            selectedDateLabel.text =
-                "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            loadSerials()
-        }
-
         loadSerials()
     }
 
@@ -6406,7 +6426,7 @@ card.addView(buttonRow)
             }
         )
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(30))
@@ -6473,6 +6493,7 @@ card.addView(buttonRow)
         ).apply { setMargins(0, dp(14), 0, dp(8)) })
 
         scroll.addView(content)
+        scroll.onPullToRefresh = { refreshCurrentScreen() }
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
@@ -6843,6 +6864,11 @@ card.addView(buttonRow)
 
     private fun showTotalSerial() {
 
+        selectedSerialDate = SimpleDateFormat(
+            "yyyy-MM-dd",
+            Locale.getDefault()
+        ).format(Calendar.getInstance().time)
+
         clearActiveListeners()
         currentScreen = SCREEN_TOTAL_SERIAL
         setupSystemBars()
@@ -6858,7 +6884,7 @@ card.addView(buttonRow)
             }
         )
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(30))
@@ -7038,6 +7064,7 @@ card.addView(buttonRow)
         }
 
         scroll.addView(content)
+        scroll.onPullToRefresh = { refreshCurrentScreen() }
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
@@ -7104,17 +7131,28 @@ card.addView(buttonRow)
             }.sortedWith(
                 compareByDescending<DocumentSnapshot> {
                     it.getBoolean("patientVip") ?: false
-                }.thenBy { it.getLong("number") ?: 0L }
+                }.thenBy { document ->
+                    document.getTimestamp("createdAt")?.seconds ?: Long.MAX_VALUE
+                }.thenBy { document ->
+                    document.getTimestamp("createdAt")?.nanoseconds ?: Int.MAX_VALUE
+                }.thenBy {
+                    it.getLong("number") ?: 0L
+                }
             )
 
             layer1List.removeAllViews()
             layer1Summary.text =
-                "📅 ${formatDisplayDate(selectedSerialDate)} | মোট Serial: ${dateDocuments.size}"
+                "📅 ${formatDisplayDate(selectedSerialDate)} | সকল ডাক্তার মিলিয়ে মোট Serial: ${dateDocuments.size}"
             if (dateDocuments.isEmpty()) {
                 layer1List.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
             } else {
-                dateDocuments.forEach { document ->
-                    layer1List.addView(createSerialCard(document))
+                dateDocuments.forEachIndexed { index, document ->
+                    layer1List.addView(
+                        createSerialCard(
+                            document,
+                            displayNumber = (index + 1).toLong()
+                        )
+                    )
                 }
             }
 
@@ -7364,14 +7402,6 @@ card.addView(buttonRow)
             )
         )
 
-        val refresh = ImageButton(this).apply {
-            setImageResource(android.R.drawable.ic_popup_sync)
-            setBackgroundColor(Color.TRANSPARENT)
-            setColorFilter(Color.WHITE)
-            contentDescription = "Refresh"
-            setOnClickListener { refreshCurrentScreen() }
-        }
-        bar.addView(refresh, LinearLayout.LayoutParams(dp(56), dp(56)))
 
         return bar.apply {
 
@@ -7919,7 +7949,7 @@ card.addView(buttonRow)
         }
         root.addView(createInnerTopBar("Admin Control Panel") { showDashboard(currentRole) })
 
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(30))
@@ -7957,6 +7987,7 @@ card.addView(buttonRow)
         }
 
         scroll.addView(content)
+        scroll.onPullToRefresh = { refreshCurrentScreen() }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
     }
@@ -7978,7 +8009,7 @@ card.addView(buttonRow)
         setupSystemBars()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
         root.addView(createInnerTopBar("User Management") { showAdminControlPanel() })
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
         content.addView(TextView(this).apply {
             text = "👥 User / Operator Management"
@@ -8049,7 +8080,7 @@ card.addView(buttonRow)
         setupSystemBars()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
         root.addView(createInnerTopBar("Notifications") { showDashboard(currentRole) })
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
         content.addView(TextView(this).apply { text = "🔔 Notifications"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
         if (currentRole == "admin") {
@@ -8097,7 +8128,7 @@ card.addView(buttonRow)
         setupSystemBars()
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
         root.addView(createInnerTopBar("Settings") { showDashboard(currentRole) })
-        val scroll = ScrollView(this)
+        val scroll = PullToRefreshScrollView(this)
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
         content.addView(TextView(this).apply { text = "⚙️ App Settings"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
         val centerName = createFormInput("Center Name")
