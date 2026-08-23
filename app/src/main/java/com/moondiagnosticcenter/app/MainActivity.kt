@@ -4814,13 +4814,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        val statusChangedByName = document.getString("statusChangedByName") ?: ""
-        val statusChangedByRole = document.getString("statusChangedByRole") ?: ""
-        if (statusChangedByName.isNotBlank()) {
-            val actor = if (statusChangedByRole.isBlank()) statusChangedByName else "$statusChangedByName ($statusChangedByRole)"
-            card.addView(createInfoText("👨‍💼 Status পরিবর্তন করেছেন", actor))
-        }
-
         val buttonRow =
             LinearLayout(this).apply {
 
