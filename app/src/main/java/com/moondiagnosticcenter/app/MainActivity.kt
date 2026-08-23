@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.pdf.PdfDocument
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
@@ -36,6 +37,8 @@ import com.google.firebase.firestore.SetOptions
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.FileOutputStream
+import java.io.File
+import android.os.ParcelFileDescriptor
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -1053,13 +1056,15 @@ class MainActivity : AppCompatActivity() {
             db.collection("serials").addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
                 var waiting = 0
+                var present = 0
                 var completed = 0
                 var cancelled = 0
                 snapshot.documents.forEach { doc ->
                     when (doc.getString("status") ?: "Waiting") {
+                        "Waiting" -> waiting++
+                        "Present" -> present++
                         "Completed" -> completed++
                         "Cancelled" -> cancelled++
-                        else -> waiting++
                     }
                 }
                 val values = listOf(snapshot.size(), waiting, completed, cancelled)
@@ -4809,6 +4814,13 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        val statusChangedByName = document.getString("statusChangedByName") ?: ""
+        val statusChangedByRole = document.getString("statusChangedByRole") ?: ""
+        if (statusChangedByName.isNotBlank()) {
+            val actor = if (statusChangedByRole.isBlank()) statusChangedByName else "$statusChangedByName ($statusChangedByRole)"
+            card.addView(createInfoText("👨‍💼 Status পরিবর্তন করেছেন", actor))
+        }
+
         val buttonRow =
             LinearLayout(this).apply {
 
@@ -5697,6 +5709,14 @@ class MainActivity : AppCompatActivity() {
                     ) ?: "সংযুক্ত"
                 )
             )
+
+            // Everyone who can view the serial can open the attachment.
+            // The app exposes no download, edit, or delete action for it.
+            val openAttachment = createSmallButton("📂 ডকুমেন্ট খুলুন")
+            openAttachment.setOnClickListener {
+                showSerialAttachment(document)
+            }
+            card.addView(openAttachment)
         }
 
         card.addView(
@@ -5797,40 +5817,51 @@ class MainActivity : AppCompatActivity() {
 
         buttonRow.addView(vipButton)
 
-        val statusButton =
-            createSmallButton(
-                "📌 $status"
-            )
+        // Only Operator/Admin can change a serial status.
+        // Regular Users can edit/delete only their own serials.
+        if (currentRole.equals("operator", true) || currentRole.equals("admin", true)) {
+            val statusButton =
+                createSmallButton(
+                    "📌 $status"
+                )
 
-        when (status) {
-            "Completed" -> {
-                statusButton.background = roundedCardDrawable(
-                    Color.rgb(46, 125, 50),
-                    dp(10)
-                )
-                statusButton.setTextColor(Color.WHITE)
+            when (status) {
+                "Completed" -> {
+                    statusButton.background = roundedCardDrawable(
+                        Color.rgb(46, 125, 50),
+                        dp(10)
+                    )
+                    statusButton.setTextColor(Color.WHITE)
+                }
+                "Waiting" -> {
+                    statusButton.background = roundedCardDrawable(
+                        Color.rgb(198, 40, 40),
+                        dp(10)
+                    )
+                    statusButton.setTextColor(Color.WHITE)
+                }
+                "Present" -> {
+                    statusButton.background = roundedCardDrawable(
+                        Color.rgb(245, 193, 38),
+                        dp(10)
+                    )
+                    statusButton.setTextColor(Color.rgb(60, 50, 0))
+                }
+                else -> {
+                    statusButton.background = roundedCardDrawable(
+                        Color.rgb(117, 117, 117),
+                        dp(10)
+                    )
+                    statusButton.setTextColor(Color.WHITE)
+                }
             }
-            "Waiting" -> {
-                statusButton.background = roundedCardDrawable(
-                    Color.rgb(198, 40, 40),
-                    dp(10)
-                )
-                statusButton.setTextColor(Color.WHITE)
+
+            statusButton.setOnClickListener {
+                showStatusDialog(document.id, status)
             }
-            else -> {
-                statusButton.background = roundedCardDrawable(
-                    Color.rgb(117, 117, 117),
-                    dp(10)
-                )
-                statusButton.setTextColor(Color.WHITE)
-            }
+
+            buttonRow.addView(statusButton)
         }
-
-        statusButton.setOnClickListener {
-            showStatusDialog(document.id, status)
-        }
-
-        buttonRow.addView(statusButton)
 
         if (canEditDelete) {
 
@@ -5879,6 +5910,107 @@ card.addView(buttonRow)
             }
 
         return card
+    }
+
+    // =========================================================
+    // OPEN SERIAL ATTACHMENT (VIEW ONLY)
+    // =========================================================
+
+    private fun showSerialAttachment(document: DocumentSnapshot) {
+        val base64 = document.getString("attachmentBase64") ?: ""
+        val mime = document.getString("attachmentMimeType") ?: ""
+        val name = document.getString("attachmentName") ?: "Document"
+
+        if (base64.isBlank()) {
+            Toast.makeText(this, "ডকুমেন্টের তথ্য পাওয়া যায়নি", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        try {
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+
+            if (mime.startsWith("image/")) {
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap == null) {
+                    Toast.makeText(this, "ছবিটি খোলা যায়নি", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                val image = ImageView(this).apply {
+                    setImageBitmap(bitmap)
+                    adjustViewBounds = true
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                }
+
+                AlertDialog.Builder(this)
+                    .setTitle("📎 $name")
+                    .setView(image)
+                    .setPositiveButton("বন্ধ করুন", null)
+                    .show()
+                return
+            }
+
+            if (mime == "application/pdf") {
+                val pdfFile = File(cacheDir, "view_${System.currentTimeMillis()}.pdf")
+                pdfFile.writeBytes(bytes)
+
+                val descriptor = ParcelFileDescriptor.open(
+                    pdfFile,
+                    ParcelFileDescriptor.MODE_READ_ONLY
+                )
+                val renderer = PdfRenderer(descriptor)
+                val pagesContainer = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(4), dp(4), dp(4), dp(4))
+                }
+
+                if (renderer.pageCount == 0) {
+                    renderer.close()
+                    descriptor.close()
+                    pdfFile.delete()
+                    Toast.makeText(this, "PDF-এ কোনো পেজ নেই", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                for (index in 0 until renderer.pageCount) {
+                    val page = renderer.openPage(index)
+                    val width = dp(320).coerceAtLeast(page.width)
+                    val scale = width.toFloat() / page.width.toFloat()
+                    val height = (page.height * scale).toInt().coerceAtLeast(dp(1))
+                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+
+                    pagesContainer.addView(ImageView(this).apply {
+                        setImageBitmap(bitmap)
+                        adjustViewBounds = true
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setPadding(dp(2), dp(2), dp(2), dp(8))
+                    })
+                }
+
+                renderer.close()
+                descriptor.close()
+                pdfFile.delete()
+
+                val scroll = ScrollView(this).apply {
+                    addView(pagesContainer)
+                }
+
+                AlertDialog.Builder(this)
+                    .setTitle("📎 $name")
+                    .setView(scroll)
+                    .setPositiveButton("বন্ধ করুন", null)
+                    .show()
+                return
+            }
+
+            Toast.makeText(this, "এই ফাইলের ধরন অ্যাপে খোলা যাচ্ছে না", Toast.LENGTH_LONG).show()
+        } catch (error: Exception) {
+            Toast.makeText(this, "ডকুমেন্ট খোলা যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     // =========================================================
@@ -6109,6 +6241,7 @@ card.addView(buttonRow)
         val statuses =
             arrayOf(
                 "Waiting",
+                "Present",
                 "Completed",
                 "Cancelled"
             )
@@ -6135,11 +6268,14 @@ card.addView(buttonRow)
                 }
 
                 val updateData = mutableMapOf<String, Any>(
-                    "status" to selected
+                    "status" to selected,
+                    "statusChangedByUid" to currentUser.uid,
+                    "statusChangedByName" to currentUserDisplayName,
+                    "statusChangedByRole" to currentRole,
+                    "statusChangedAt" to FieldValue.serverTimestamp()
                 )
 
-                // Whenever a serial is marked Completed, record the exact
-                // Firebase user who performed the completion.
+                // Keep the existing completion audit as well.
                 if (selected.equals("Completed", true)) {
                     updateData["completedByUid"] = currentUser.uid
                     updateData["completedByName"] = currentUserDisplayName
@@ -6275,6 +6411,7 @@ card.addView(buttonRow)
         val statusOptions = arrayOf(
             "সব Status",
             "Waiting",
+            "Present",
             "Completed",
             "Cancelled"
         )
@@ -6367,6 +6504,9 @@ card.addView(buttonRow)
             val waitingCount = filtered.count {
                 (it.getString("status") ?: "Waiting") == "Waiting"
             }
+            val presentCount = filtered.count {
+                (it.getString("status") ?: "Waiting") == "Present"
+            }
             val completedCount = filtered.count {
                 (it.getString("status") ?: "Waiting") == "Completed"
             }
@@ -6375,7 +6515,7 @@ card.addView(buttonRow)
             }
 
             summary.text =
-                "মোট: ${filtered.size}   ⭐ VIP: $vipCount   ⏳ $waitingCount   ✅ $completedCount   ❌ $cancelledCount"
+                "মোট: ${filtered.size}   ⭐ VIP: $vipCount   ⏳ $waitingCount   🟡 $presentCount   ✅ $completedCount   ❌ $cancelledCount"
 
             if (filtered.isEmpty()) {
                 listContainer.addView(
