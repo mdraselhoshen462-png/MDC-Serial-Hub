@@ -1,8784 +1,1746 @@
-package com.moondiagnosticcenter.app
+package com.moondiagnostic.app
 
-import android.app.DatePickerDialog
-import android.content.DialogInterface
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.app.Activity
+import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
-import android.graphics.pdf.PdfRenderer
-import android.net.Uri
-import android.os.Bundle
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import android.text.InputType
-import android.text.Editable
-import android.text.TextWatcher
-import android.util.Base64
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.*
-import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.WindowCompat
-import androidx.drawerlayout.widget.DrawerLayout
-import com.google.android.material.navigation.NavigationView
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.FirebaseApp
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
-import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.io.FileOutputStream
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import java.io.File
-import android.os.ParcelFileDescriptor
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
-private class PullToRefreshScrollView(context: android.content.Context) : ScrollView(context) {
-    var onPullToRefresh: (() -> Unit)? = null
-    private var downY = 0f
-    private var triggered = false
+class MainActivity : Activity() {
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downY = event.rawY
-                triggered = false
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val pulledDistance = event.rawY - downY
-                val threshold = 110f * resources.displayMetrics.density
-                if (event.actionMasked == MotionEvent.ACTION_UP &&
-                    scrollY <= 0 && pulledDistance >= threshold && !triggered) {
-                    triggered = true
-                    onPullToRefresh?.invoke()
-                }
-                downY = 0f
-            }
-        }
-        return super.onTouchEvent(event)
+    // =========================================================
+    // UI / COLORS
+    // =========================================================
+    private val BG = Color.rgb(242, 248, 253)
+    private val BLUE = Color.rgb(28, 91, 145)
+    private val DARK_BLUE = Color.rgb(20, 67, 110)
+    private val TEAL = Color.rgb(18, 137, 128)
+    private val RED = Color.rgb(198, 58, 58)
+    private val GREEN = Color.rgb(39, 135, 91)
+    private val ORANGE = Color.rgb(224, 143, 39)
+    private val PURPLE = Color.rgb(103, 78, 161)
+    private val WHITE = Color.WHITE
+    private val DARK = Color.rgb(45, 50, 55)
+    private val GRAY = Color.rgb(105, 110, 115)
+    private val LIGHT_BORDER = Color.rgb(205, 220, 232)
+
+    // =========================================================
+    // FIREBASE REALTIME DATABASE
+    // =========================================================
+    private lateinit var db: FirebaseDatabase
+    private lateinit var rootRef: DatabaseReference
+    private var firebaseAvailable = false
+
+    private val LOCAL_SERIAL_PREFIX = "serial_"
+
+    private var serialListener: ValueEventListener? = null
+    private var doctorListener: ValueEventListener? = null
+    private var careListener: ValueEventListener? = null
+
+    private val serials = mutableListOf<SerialRecord>()
+    private val doctors = mutableListOf<String>()
+    private val careOfs = mutableListOf<String>()
+
+    // =========================================================
+    // SESSION
+    // =========================================================
+    private val PREF_NAME = "MDC_APP_SESSION"
+    private lateinit var pref: android.content.SharedPreferences
+    private var currentUsername = ""
+    private var currentRole = ""
+
+    private enum class Screen {
+        LOGIN, DASHBOARD, TOTAL, DOCTOR_SERIALS, CARE_SERIALS,
+        ADD_SERIAL, ADD_DOCTOR, ADD_CARE, REPORT, ADMIN
     }
-}
 
-class MainActivity : AppCompatActivity() {
+    private var currentScreen = Screen.LOGIN
+    private var selectedDoctor = ""
+    private var selectedCareOf = ""
 
-    private data class CareOfOption(
+    private data class SerialRecord(
         val id: String,
-        val name: String,
-        val address: String
-    ) {
-        override fun toString(): String {
-            return if (address.isBlank()) {
-                name
-            } else {
-                "$name\n$address"
-            }
-        }
-    }
-
-    private lateinit var auth: FirebaseAuth
-    private val db = FirebaseFirestore.getInstance()
-
-    private val activeListeners = mutableListOf<ListenerRegistration>()
-    private var lastListTitle = ""
-    private var lastListFilterField = ""
-    private var lastListFilterValue = ""
-    private var lastListDate = ""
-
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var navigationView: NavigationView
-
-    private var currentRole: String = ""
-    private var currentUserDisplayName: String = ""
+        val number: Int,
+        val dateKey: String,
+        val patient: String,
+        val careOf: String,
+        val doctor: String,
+        val status: String,
+        val createdBy: String,
+        val createdRole: String,
+        val createdAt: String,
+        val completedBy: String = "",
+        val completedAt: String = ""
+    )
 
     // =========================================================
-    // SCREEN STATE
+    // ACTIVITY
     // =========================================================
-
-    private var currentScreen = "login"
-
-    private var serialParentScreen = "dashboard"
-
-    companion object {
-
-        private const val SCREEN_LOGIN = "login"
-        private const val SCREEN_DASHBOARD = "dashboard"
-        private const val SCREEN_DOCTOR_LIST = "doctor_list"
-        private const val SCREEN_CAREOF_LIST = "careof_list"
-        private const val SCREEN_TOTAL_SERIAL = "total_serial"
-        private const val SCREEN_REPORTS = "reports"
-        private const val SCREEN_DOCTOR_SERIAL = "doctor_serial"
-        private const val SCREEN_CAREOF_SERIAL = "careof_serial"
-        private const val SCREEN_ADD_DOCTOR = "add_doctor"
-        private const val SCREEN_ADD_CAREOF = "add_careof"
-        private const val SCREEN_ADD_SERIAL = "add_serial"
-
-        private const val REQUEST_GALLERY = 501
-        private const val REQUEST_CAMERA = 502
-        private const val REQUEST_REPORT_PDF = 503
-
-        private const val MAX_IMAGE_WIDTH = 900
-        private const val MAX_IMAGE_HEIGHT = 900
-    }
-
-    // =========================================================
-    // COLORS
-    // =========================================================
-
-    private val topBarColor = Color.rgb(13, 110, 110)
-    private val primaryColor = Color.rgb(21, 101, 192)
-    private val backgroundColor = Color.rgb(245, 247, 250)
-
-    private val whiteColor = Color.WHITE
-    private val darkText = Color.rgb(45, 45, 45)
-    private val lightText = Color.rgb(90, 90, 90)
-
-    private val totalSerialColor = Color.rgb(224, 247, 250)
-    private val addSerialColor = Color.rgb(227, 242, 253)
-    private val addDoctorColor = Color.rgb(232, 245, 233)
-    private val addCareOfColor = Color.rgb(243, 229, 245)
-
-    private val searchColor = Color.rgb(255, 243, 224)
-    private val doctorsColor = Color.rgb(224, 247, 250)
-    private val careOfColor = Color.rgb(232, 234, 246)
-    private val reportsColor = Color.rgb(251, 233, 231)
-
-    // =========================================================
-    // ADD SERIAL TEMPORARY DATA
-    // =========================================================
-
-    private var selectedAttachmentBase64: String? = null
-    private var selectedAttachmentName: String = ""
-    private var selectedAttachmentMimeType: String = ""
-    private var pendingReportPdfFile: java.io.File? = null
-
-    private var addSerialPatientInput: EditText? = null
-    private var addSerialDoctorSpinner: Spinner? = null
-    private var addSerialCareOfSpinner: AutoCompleteTextView? = null
-    private var addSerialDateText: TextView? = null
-    private var addSerialNumberText: TextView? = null
-    private var addSerialStarCheck: CheckBox? = null
-    private var addSerialDescriptionInput: EditText? = null
-    private var addSerialAttachmentText: TextView? = null
-
-    private val doctorIds = mutableListOf<String>()
-    private val doctorNames = mutableListOf<String>()
-
-    private val careOfIds = mutableListOf<String>()
-    private val careOfNames = mutableListOf<String>()
-    private val careOfAddresses = mutableListOf<String>()
-    private val careOfOptions = mutableListOf<CareOfOption>()
-
-    private var selectedDoctorId: String = ""
-    private var selectedDoctorName: String = ""
-
-    private var selectedCareOfId: String = ""
-    private var selectedCareOfName: String = ""
-    private var selectedCareOfAddress: String = ""
-
-    private var selectedSerialDate: String =
-        SimpleDateFormat(
-            "yyyy-MM-dd",
-            Locale.getDefault()
-        ).format(Calendar.getInstance().time)
-
-    // =========================================================
-    // ON CREATE
-    // =========================================================
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pref = getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+        initializeFirebaseIfAvailable()
+        createDefaultAdmin()
+        seedFirebaseAdminIfNeeded()
 
-        setupSystemBars()
-
-        auth = FirebaseAuth.getInstance()
-
-        setupBackButton()
-
-        if (auth.currentUser != null) {
-            checkUserAccess()
+        if (pref.getBoolean("logged_in", false)) {
+            currentUsername = pref.getString("current_user", "") ?: ""
+            currentRole = pref.getString("current_role", "") ?: ""
+            if (currentUsername.isNotEmpty() && currentRole.isNotEmpty()) {
+                showDashboard()
+                startRealtimeListeners()
+            } else {
+                showLogin()
+            }
         } else {
             showLogin()
-        }
-    }
-
-    // =========================================================
-    // BACK BUTTON
-    // =========================================================
-
-    private fun setupBackButton() {
-
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : OnBackPressedCallback(true) {
-
-                override fun handleOnBackPressed() {
-
-                    if (
-                        ::drawerLayout.isInitialized &&
-                        drawerLayout.isDrawerOpen(Gravity.START)
-                    ) {
-                        drawerLayout.closeDrawer(Gravity.START)
-                        return
-                    }
-
-                    when (currentScreen) {
-
-                        SCREEN_LOGIN -> {
-                            finish()
-                        }
-
-                        SCREEN_DASHBOARD -> {
-
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("অ্যাপ বন্ধ করুন")
-                                .setMessage(
-                                    "আপনি কি অ্যাপটি বন্ধ করতে চান?"
-                                )
-                                .setNegativeButton(
-                                    "না",
-                                    null
-                                )
-                                .setPositiveButton(
-                                    "হ্যাঁ"
-                                ) { _, _ ->
-                                    finish()
-                                }
-                                .show()
-                        }
-
-                        SCREEN_DOCTOR_LIST -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_CAREOF_LIST -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_TOTAL_SERIAL -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_REPORTS -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_DOCTOR_SERIAL -> {
-                            showDoctorList()
-                        }
-
-                        SCREEN_CAREOF_SERIAL -> {
-                            showCareOfList()
-                        }
-
-                        SCREEN_ADD_DOCTOR -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_ADD_CAREOF -> {
-                            showDashboard(currentRole)
-                        }
-
-                        SCREEN_ADD_SERIAL -> {
-                            showDashboard(currentRole)
-                        }
-
-                        else -> {
-                            showDashboard(currentRole)
-                        }
-                    }
-                }
-            }
-        )
-    }
-
-    // =========================================================
-    // DP
-    // =========================================================
-
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
-
-    // =========================================================
-    // SYSTEM BAR
-    // =========================================================
-
-    private fun setupSystemBars() {
-
-        WindowCompat.setDecorFitsSystemWindows(
-            window,
-            true
-        )
-
-        window.statusBarColor = topBarColor
-        window.navigationBarColor = backgroundColor
-
-        window.decorView.systemUiVisibility = 0
-    }
-
-    // =========================================================
-    // STATUS BAR HEIGHT
-    // =========================================================
-
-    private fun getStatusBarHeight(): Int {
-
-        val resourceId =
-            resources.getIdentifier(
-                "status_bar_height",
-                "dimen",
-                "android"
-            )
-
-        return if (resourceId > 0) {
-            resources.getDimensionPixelSize(resourceId)
-        } else {
-            0
         }
     }
 
     // =========================================================
     // LOGIN
     // =========================================================
-
     private fun showLogin() {
+        stopRealtimeListeners()
+        currentUsername = ""
+        currentRole = ""
+        currentScreen = Screen.LOGIN
 
-        currentScreen = SCREEN_LOGIN
+        val content = verticalContainer()
+        content.gravity = Gravity.CENTER_HORIZONTAL
+        content.setPadding(18, 26, 18, 22)
 
-        setupSystemBars()
+        content.addView(space(22))
+        content.addView(label("MDC", 50f, BLUE, true))
+        content.addView(space(4))
+        content.addView(label("মুন ডায়াগনস্টিক সেন্টার", 24f, DARK_BLUE, true))
+        content.addView(space(3))
+        content.addView(label("সঠিক নির্ণয়, সুস্থ জীবনের প্রত্যয়", 13f, GRAY))
+        content.addView(space(16))
 
-        val root =
-            LinearLayout(this).apply {
+        val card = cardLayout()
+        card.addView(label("লগইন করুন", 26f, DARK_BLUE, true))
+        card.addView(space(10))
 
-                orientation =
-                    LinearLayout.VERTICAL
+        val username = input("ইউজারনেম")
+        val password = input("পাসওয়ার্ড", true)
+        card.addView(username)
 
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    dp(30),
-                    dp(30),
-                    dp(30),
-                    dp(30)
-                )
-
-                setBackgroundColor(
-                    whiteColor
-                )
-            }
-
-        val logo =
-            TextView(this).apply {
-
-                text = "MDC"
-
-                textSize = 46f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    primaryColor
-                )
-            }
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    "মুন ডায়াগনস্টিক সেন্টার"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    0,
-                    dp(10),
-                    0,
-                    dp(30)
-                )
-
-                setTextColor(
-                    darkText
-                )
-            }
-
-        val loginTitle =
-            TextView(this).apply {
-
-                text = "Login"
-
-                textSize = 26f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    0,
-                    dp(10),
-                    0,
-                    dp(22)
-                )
-            }
-
-        val email =
-            EditText(this).apply {
-
-                hint = "Email"
-
-                textSize = 18f
-
-                setSingleLine(true)
-
-                setPadding(
-                    dp(15),
-                    dp(12),
-                    dp(15),
-                    dp(12)
-                )
-            }
-
-        val password =
-            EditText(this).apply {
-
-                hint = "Password"
-
-                textSize = 18f
-
-                setSingleLine(true)
-
-                inputType =
-                    InputType.TYPE_CLASS_TEXT or
-                            InputType.TYPE_TEXT_VARIATION_PASSWORD
-
-                setPadding(
-                    dp(15),
-                    dp(12),
-                    dp(15),
-                    dp(12)
-                )
-            }
-
-        val loginButton =
-            Button(this).apply {
-
-                text = "LOGIN"
-
-                textSize = 18f
-
-                setPadding(
-                    0,
-                    dp(12),
-                    0,
-                    dp(12)
-                )
-            }
-
-        val status =
-            TextView(this).apply {
-
-                textSize = 15f
-
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    0,
-                    dp(15),
-                    0,
-                    0
-                )
-            }
-
-        loginButton.setOnClickListener {
-
-            val emailText =
-                email.text.toString().trim()
-
-            val passwordText =
-                password.text.toString()
-
-            if (
-                emailText.isEmpty() ||
-                passwordText.isEmpty()
-            ) {
-
-                Toast.makeText(
-                    this,
-                    "Email এবং Password দিন",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                return@setOnClickListener
-            }
-
-            loginButton.isEnabled = false
-
-            status.text =
-                "Login হচ্ছে..."
-
-            auth.signInWithEmailAndPassword(
-                emailText,
-                passwordText
-            )
-                .addOnSuccessListener {
-                    checkUserAccess()
-                }
-                .addOnFailureListener { error ->
-
-                    loginButton.isEnabled = true
-
-                    status.text = ""
-
-                    Toast.makeText(
-                        this,
-                        "Login ব্যর্থ: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+        val passwordRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-
-        root.addView(logo)
-        root.addView(title)
-        root.addView(loginTitle)
-
-        root.addView(
-            email,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    dp(5),
-                    0,
-                    dp(10)
-                )
+        password.layoutParams = LinearLayout.LayoutParams(0, 56, 1f).apply { setMargins(6, 5, 2, 5) }
+        passwordRow.addView(password)
+        passwordRow.addView(smallButton("👁", TEAL) {
+            val hidden = password.inputType == (InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            val pos = password.selectionStart.coerceAtLeast(0)
+            password.inputType = if (hidden) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             }
-        )
+            password.setSelection(pos.coerceAtMost(password.text.length))
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(54, 46).apply { setMargins(2, 5, 6, 5) }
+        })
+        card.addView(passwordRow)
+        card.addView(space(6))
+        card.addView(actionButton("🔐   লগইন", BLUE, 58) {
+            loginUser(username.text.toString().trim(), password.text.toString())
+        })
 
-        root.addView(
-            password,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(15)
-                )
-            }
-        )
+        content.addView(card, matchWrap())
+        content.addView(space(14))
+        content.addView(label("অ্যাক্সেস শুধুমাত্র অনুমোদিত User / Operator / Admin-এর জন্য", 12.5f, GRAY))
+        content.addView(space(10))
+        content.addView(label("Moon Diagnostic Center", 14f, GRAY, true))
+        content.addView(label("আপনার বিশ্বস্ত স্বাস্থ্যসেবা কেন্দ্র", 12f, GRAY))
 
-        root.addView(
-            loginButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(58)
-            )
-        )
-
-        root.addView(status)
-
-        setContentView(root)
+        setContentView(pullToRefresh(content) { })
     }
 
-    // =========================================================
-    // CHECK USER ACCESS
-    // =========================================================
+    private fun loginUser(username: String, password: String) {
+        if (username.isEmpty()) { toast("Username লিখুন"); return }
+        if (password.isEmpty()) { toast("Password লিখুন"); return }
 
-    private fun checkUserAccess() {
-
-        val user = auth.currentUser
-
-        if (user == null) {
-            showLogin()
-            return
+        if (firebaseAvailable) {
+            rootRef.child("users").child(username).get().addOnSuccessListener { snap ->
+                val savedHash = snap.child("passwordHash").getValue(String::class.java) ?: ""
+                val role = snap.child("role").getValue(String::class.java) ?: ""
+                val active = snap.child("active").getValue(Boolean::class.java) ?: false
+                if (snap.exists() && active && savedHash == hashPassword(password) && role.isNotEmpty()) {
+                    completeLogin(username, role)
+                } else {
+                    toast("Username অথবা Password ভুল / অ্যাকাউন্ট নিষ্ক্রিয়")
+                }
+            }.addOnFailureListener { toast("Firebase Database সংযোগ করা যাচ্ছে না") }
+        } else {
+            val savedUsername = pref.getString("user_$username", null)
+            val savedPassword = pref.getString("pass_$username", null)
+            val savedRole = pref.getString("role_$username", null)
+            val active = pref.getBoolean("active_$username", true)
+            if (savedUsername != null && active && savedPassword == hashPassword(password) && !savedRole.isNullOrEmpty()) {
+                completeLogin(username, savedRole)
+            } else {
+                toast("Username অথবা Password ভুল")
+            }
         }
+    }
 
-        db.collection("users")
-            .document(user.uid)
-            .get()
-            .addOnSuccessListener { document ->
-
-                if (!document.exists()) {
-
-                    auth.signOut()
-
-                    Toast.makeText(
-                        this,
-                        "আপনার User profile পাওয়া যায়নি",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    showLogin()
-                    return@addOnSuccessListener
-                }
-
-                val active =
-                    document.getBoolean("active")
-                        ?: false
-
-                val role =
-                    document.getString("role")
-                        ?: ""
-
-                if (!active) {
-
-                    auth.signOut()
-
-                    Toast.makeText(
-                        this,
-                        "আপনার account বর্তমানে বন্ধ আছে",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    showLogin()
-                    return@addOnSuccessListener
-                }
-
-                currentRole =
-                    role.lowercase()
-
-                currentUserDisplayName =
-                    document.getString("name")
-                        ?: document.getString("username")
-                        ?: document.getString("displayName")
-                        ?: user.email
-                        ?: user.uid
-
-                showDashboard(
-                    currentRole
-                )
-            }
-            .addOnFailureListener { error ->
-
-                auth.signOut()
-
-                Toast.makeText(
-                    this,
-                    "User profile যাচাই করা যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-
-                showLogin()
-            }
+    private fun completeLogin(username: String, role: String) {
+        currentUsername = username
+        currentRole = role
+        pref.edit()
+            .putBoolean("logged_in", true)
+            .putString("current_user", username)
+            .putString("current_role", role)
+            .apply()
+        toast("সফলভাবে লগইন হয়েছে")
+        showDashboard()
+        startRealtimeListeners()
     }
 
     // =========================================================
     // DASHBOARD
     // =========================================================
-
-    private fun clearActiveListeners() {
-        activeListeners.forEach { it.remove() }
-        activeListeners.clear()
-    }
-
-    private fun refreshCurrentScreen() {
-        when (currentScreen) {
-            SCREEN_DASHBOARD -> showDashboard(currentRole)
-            SCREEN_TOTAL_SERIAL -> showTotalSerial()
-            SCREEN_REPORTS -> showReports()
-            SCREEN_DOCTOR_LIST -> showDoctorList()
-            SCREEN_CAREOF_LIST -> showCareOfList()
-            SCREEN_DOCTOR_SERIAL, SCREEN_CAREOF_SERIAL -> {
-                if (lastListFilterField.isNotEmpty()) {
-                    showSerialListPage(lastListTitle, lastListFilterField, lastListFilterValue, lastListDate)
-                } else {
-                    showDashboard(currentRole)
-                }
-            }
-            else -> showDashboard(currentRole)
-        }
-    }
-
-    private fun showDashboard(role: String) {
-
-        clearActiveListeners()
-        currentScreen = SCREEN_DASHBOARD
-
-        setupSystemBars()
-
-        drawerLayout =
-            DrawerLayout(this).apply {
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        val mainLayout =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        val topBar =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setPadding(
-                    dp(8),
-                    getStatusBarHeight() + dp(8),
-                    dp(15),
-                    dp(12)
-                )
-
-                setBackgroundColor(
-                    topBarColor
-                )
-
-                elevation =
-                    dp(8).toFloat()
-            }
-
-        val menuButton =
-            ImageButton(this).apply {
-
-                setImageResource(
-                    android.R.drawable.ic_menu_sort_by_size
-                )
-
-                setBackgroundColor(
-                    Color.TRANSPARENT
-                )
-
-                setColorFilter(
-                    Color.WHITE
-                )
-
-                contentDescription =
-                    "Open Menu"
-            }
-
-        topBar.addView(
-            menuButton,
-            LinearLayout.LayoutParams(
-                dp(64),
-                dp(64)
-            )
-        )
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    "Moon Diagnostic Center"
-
-                textSize = 22f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setPadding(
-                    dp(10),
-                    0,
-                    0,
-                    0
-                )
-            }
-
-        topBar.addView(
-            title,
-            LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                1f
-            )
-        )
-
-        val roleText =
-            TextView(this).apply {
-
-                text =
-                    role.uppercase()
-
-                textSize = 14f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                gravity =
-                    Gravity.CENTER
-            }
-
-        topBar.addView(
-            roleText,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-
-        mainLayout.addView(
-            topBar,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(88)
-            )
-        )
-
-        val scrollView =
-            PullToRefreshScrollView(this).apply {
-                isFillViewport = true
-                onPullToRefresh = { refreshCurrentScreen() }
-            }
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(16),
-                    dp(14),
-                    dp(16),
-                    dp(30)
-                )
-            }
-
-        val messageBanner =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                background = roundedCardDrawable(Color.rgb(198, 40, 40), dp(12))
-                visibility = View.GONE
-            }
-
-        content.addView(
-            messageBanner,
-            LinearLayout.LayoutParams(-1, -2).apply {
-                setMargins(0, 0, 0, dp(12))
-            }
-        )
-
-        loadTodayDashboardMessages(messageBanner)
-
-        val welcome =
-            TextView(this).apply {
-
-                text = "স্বাগতম"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(4),
-                    dp(5),
-                    dp(14)
-                )
-            }
-
-        content.addView(welcome)
-
-        val row1 =
-            LinearLayout(this).apply {
-                orientation =
-                    LinearLayout.HORIZONTAL
-            }
-
-        val totalSerial =
-            createDashboardCard(
-                "📋",
-                "Total Serial",
-                totalSerialColor
-            )
-
-        val addSerial =
-            createDashboardCard(
-                "➕",
-                "Add Serial",
-                addSerialColor
-            )
-
-        row1.addView(
-            totalSerial,
-            gridParams()
-        )
-
-        row1.addView(
-            addSerial,
-            gridParams()
-        )
-
-        content.addView(row1)
-
-        val row2 =
-            LinearLayout(this).apply {
-                orientation =
-                    LinearLayout.HORIZONTAL
-            }
-
-        val addDoctor =
-            createDashboardCard(
-                "👨‍⚕️",
-                "Add Doctor",
-                addDoctorColor
-            )
-
-        val addCareOf =
-            createDashboardCard(
-                "👤",
-                "Add Care Of",
-                addCareOfColor
-            )
-
-        row2.addView(
-            addDoctor,
-            gridParams()
-        )
-
-        row2.addView(
-            addCareOf,
-            gridParams()
-        )
-
-        content.addView(row2)
-
-        val summaryTitle =
-            TextView(this).apply {
-
-                text = "Serial Summary"
-
-                textSize = 22f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(24),
-                    dp(5),
-                    dp(10)
-                )
-            }
-
-        content.addView(summaryTitle)
-
-        val summaryRow =
-            LinearLayout(this).apply {
-                orientation =
-                    LinearLayout.HORIZONTAL
-            }
-
-        summaryRow.addView(
-            createSummaryCard(
-                "মোট",
-                "0"
-            ),
-            summaryParams()
-        )
-
-        summaryRow.addView(
-            createSummaryCard(
-                "অপেক্ষমাণ",
-                "0"
-            ),
-            summaryParams()
-        )
-
-        summaryRow.addView(
-            createSummaryCard(
-                "সম্পন্ন",
-                "0"
-            ),
-            summaryParams()
-        )
-
-        summaryRow.addView(
-            createSummaryCard(
-                "বাতিল",
-                "0"
-            ),
-            summaryParams()
-        )
-
-        content.addView(summaryRow)
-
-        activeListeners.add(
-            db.collection("serials").addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) return@addSnapshotListener
-                var waiting = 0
-                var present = 0
-                var completed = 0
-                var cancelled = 0
-                snapshot.documents.forEach { doc ->
-                    when (doc.getString("status") ?: "Waiting") {
-                        "Waiting" -> waiting++
-                        "Present" -> present++
-                        "Completed" -> completed++
-                        "Cancelled" -> cancelled++
-                    }
-                }
-                val values = listOf(snapshot.size(), waiting, completed, cancelled)
-                values.forEachIndexed { index, value ->
-                    val card = summaryRow.getChildAt(index) as? LinearLayout ?: return@forEachIndexed
-                    val valueView = card.getChildAt(1) as? TextView ?: return@forEachIndexed
-                    valueView.text = value.toString()
-                }
-            }
-        )
-
-        val quickTitle =
-            TextView(this).apply {
-
-                text = "Quick Access"
-
-                textSize = 22f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(24),
-                    dp(5),
-                    dp(10)
-                )
-            }
-
-        content.addView(quickTitle)
-
-        val row3 =
-            LinearLayout(this).apply {
-                orientation =
-                    LinearLayout.HORIZONTAL
-            }
-
-        val search =
-            createDashboardCard(
-                "🔎",
-                "Search",
-                searchColor
-            )
-
-        val doctors =
-            createDashboardCard(
-                "👨‍⚕️",
-                "Doctors",
-                doctorsColor
-            )
-
-        row3.addView(
-            search,
-            gridParams()
-        )
-
-        row3.addView(
-            doctors,
-            gridParams()
-        )
-
-        content.addView(row3)
-
-        val row4 =
-            LinearLayout(this).apply {
-                orientation =
-                    LinearLayout.HORIZONTAL
-            }
-
-        val careOf =
-            createDashboardCard(
-                "👤",
-                "Care Of",
-                careOfColor
-            )
-
-        val reports =
-            createDashboardCard(
-                "📊",
-                "Reports",
-                reportsColor
-            )
-
-        row4.addView(
-            careOf,
-            gridParams()
-        )
-
-        row4.addView(
-            reports,
-            gridParams()
-        )
-
-        content.addView(row4)
-
-        scrollView.addView(content)
-
-        mainLayout.addView(
-            scrollView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        drawerLayout.addView(
-            mainLayout,
-            DrawerLayout.LayoutParams(
-                DrawerLayout.LayoutParams.MATCH_PARENT,
-                DrawerLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        navigationView =
-            NavigationView(this).apply {
-                setBackgroundColor(Color.WHITE)
-            }
-
-        val drawerWidth =
-            (
-                resources.displayMetrics.widthPixels * 0.82
-            ).toInt()
-
-        val drawerParams =
-            DrawerLayout.LayoutParams(
-                drawerWidth,
-                DrawerLayout.LayoutParams.MATCH_PARENT
-            )
-
-        drawerParams.gravity =
-            Gravity.START
-
-        drawerLayout.addView(
-            navigationView,
-            drawerParams
-        )
-
-        createNavigationMenu(
-            navigationView,
-            role
-        )
-
-        setContentView(drawerLayout)
-
-        menuButton.setOnClickListener {
-            drawerLayout.openDrawer(
-                Gravity.START
-            )
+    private fun showDashboard() {
+        currentScreen = Screen.DASHBOARD
+        val root = verticalContainer()
+        root.setPadding(12, 16, 12, 18)
+
+        root.addView(label("MDC", 46f, BLUE, true))
+        root.addView(label("স্বাগতম, $currentUsername", 21f, DARK, true))
+        root.addView(label("Role: $currentRole", 14f, TEAL, true))
+        root.addView(space(6))
+        root.addView(actionButton("🚪   Logout", RED, 54) { logout() })
+        root.addView(space(10))
+
+        val date = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date())
+        root.addView(label("আজকের তারিখ", 19f, DARK_BLUE, true))
+        root.addView(label(date, 17f, DARK))
+        root.addView(space(10))
+
+        // serials is loaded only for today's date, so these are today's counts.
+        val waiting = serials.count { it.status.equals("Waiting", true) }
+        val present = serials.count { it.status.equals("Present", true) }
+        val completed = serials.count { it.status.equals("Completed", true) }
+
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row1.addView(statCard("👥", "মোট সিরিয়াল", serials.size.toString(), BLUE))
+        row1.addView(statCard("⏳", "অপেক্ষমাণ", waiting.toString(), ORANGE))
+        root.addView(row1)
+
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row2.addView(statCard("●", "উপস্থিত", present.toString(), Color.rgb(218, 170, 20)))
+        row2.addView(statCard("✓", "সম্পন্ন", completed.toString(), GREEN))
+        root.addView(row2)
+        root.addView(space(12))
+
+        root.addView(label("দ্রুত অ্যাকশন", 21f, DARK_BLUE, true))
+        root.addView(space(3))
+        root.addView(actionButton("📋   টোটাল সিরিয়াল", BLUE) { showTotalSerial() })
+        root.addView(actionButton("＋   অ্যাড সিরিয়াল", BLUE) { showAddSerial() })
+        root.addView(actionButton("👨‍⚕️   অ্যাড ডাক্তার", TEAL) { showAddDoctor() })
+        root.addView(actionButton("👤   অ্যাড কেয়ার অফ", TEAL) { showAddCare() })
+
+        root.addView(actionButton("📄   রিপোর্ট / PDF", PURPLE) { showReport() })
+
+        if (currentRole.equals("Admin", true)) {
+            root.addView(space(6))
+            root.addView(actionButton("⚙   Admin Control Panel", PURPLE) { showAdminPanel() })
         }
 
-        totalSerial.setOnClickListener {
-            showTotalSerial()
-        }
+        root.addView(space(12))
+        root.addView(label(if (firebaseAvailable) "রিয়েল-টাইম ডাটা চালু আছে" else "লোকাল ডাটা মোড — Firebase যুক্ত করলে রিয়েল-টাইম হবে", 13f, if (firebaseAvailable) TEAL else ORANGE, true))
+        root.addView(label("নতুন ডাটা এলে নিজে থেকেই আপডেট হবে। চাইলে উপর থেকে টেনে Refresh করতে পারবেন।", 12f, GRAY))
+        root.addView(space(10))
+        root.addView(label("মুন ডায়াগনস্টিক সেন্টার", 14f, GRAY, true))
+        root.addView(label("আপনার বিশ্বস্ত স্বাস্থ্যসেবা কেন্দ্র", 12f, GRAY))
 
-        addSerial.setOnClickListener {
-            showAddSerial()
-        }
-
-        addDoctor.setOnClickListener {
-
-            if (role.lowercase() == "admin") {
-                showAddDoctor()
-            } else {
-                Toast.makeText(
-                    this,
-                    "শুধুমাত্র Admin Doctor যোগ করতে পারবেন",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-
-        addCareOf.setOnClickListener {
-            // Any authenticated user may add a Care Of.
-            // Edit/Delete is restricted to the creator or Admin.
-            showAddCareOf()
-        }
-
-        search.setOnClickListener {
-            showSerialSearch()
-        }
-
-        doctors.setOnClickListener {
-            showDoctorList()
-        }
-
-        careOf.setOnClickListener {
-            showCareOfList()
-        }
-
-        reports.setOnClickListener {
-            showReports()
-        }
+        setContentView(pullToRefresh(root) {
+            refreshCurrentScreen()
+        })
     }
 
     // =========================================================
-    // DATE-WISE MESSAGE
+    // TOTAL SERIAL: TWO INNER TABS
     // =========================================================
+    private fun showTotalSerial() {
+        currentScreen = Screen.TOTAL
+        val root = verticalContainer()
+        root.setPadding(12, 16, 12, 18)
 
-    private fun loadTodayDashboardMessages(container: LinearLayout) {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
-        db.collection("messages")
-            .whereEqualTo("date", today)
-            .whereEqualTo("active", true)
-            .get()
-            .addOnSuccessListener { result ->
-                container.removeAllViews()
-                if (result.isEmpty) {
-                    container.visibility = View.GONE
-                    return@addOnSuccessListener
-                }
-                container.visibility = View.VISIBLE
-                container.addView(TextView(this).apply {
-                    text = "📢 আজকের গুরুত্বপূর্ণ বার্তা"
-                    textSize = 17f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(Color.WHITE)
+        root.addView(label("📋 টোটাল সিরিয়াল", 25f, DARK_BLUE, true))
+        root.addView(label("ডাক্তার ও কেয়ার অফ অনুযায়ী সিরিয়াল দেখতে নিচের ট্যাব নির্বাচন করুন", 12.5f, GRAY))
+        root.addView(space(10))
+
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val doctorTab = tabButton("👨‍⚕️\nডাক্তার ওয়াইজ", BLUE) { showDoctorWise() }
+        val careTab = tabButton("👤\nকেয়ার অফ ওয়াইজ", TEAL) { showCareWise() }
+        tabs.addView(doctorTab)
+        tabs.addView(careTab)
+        root.addView(tabs)
+        root.addView(space(12))
+
+        root.addView(label("আজকের মোট সিরিয়াল: ${serials.size} জন", 18f, TEAL, true))
+        root.addView(space(6))
+        root.addView(label("সব সিরিয়াল ১ নম্বর থেকে ধারাবাহিকভাবে দেখা যাবে", 12.5f, GRAY))
+        root.addView(space(8))
+
+        serials.sortedBy { it.number }.forEach { root.addView(serialCard(it, allowActions = true)) }
+        if (serials.isEmpty()) root.addView(label("আজ এখনো কোনো সিরিয়াল তৈরি হয়নি", 15f, GRAY))
+
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
+    }
+
+    private fun showDoctorWise() {
+        currentScreen = Screen.DOCTOR_SERIALS
+        selectedDoctor = ""
+        val root = verticalContainer()
+        root.addView(label("👨‍⚕️ ডাক্তার ওয়াইজ সিরিয়াল", 24f, DARK_BLUE, true))
+        root.addView(label("এড করা ডাক্তার নির্বাচন করুন", 13f, GRAY))
+        root.addView(space(8))
+
+        if (doctors.isEmpty()) {
+            root.addView(label("কোনো ডাক্তার এখনো যোগ করা হয়নি", 15f, GRAY))
+        } else {
+            doctors.sorted().forEach { doctor ->
+                root.addView(actionButton("👨‍⚕️   $doctor", BLUE, 54) {
+                    selectedDoctor = doctor
+                    showFilteredSerials("ডাক্তার: $doctor", serials.filter { it.doctor == doctor })
                 })
-                val prefs = getSharedPreferences("MDC_MESSAGE_DISMISS", MODE_PRIVATE)
-                result.documents.forEach { doc ->
-                    if (prefs.getBoolean("hidden_${doc.id}", false)) return@forEach
-                    val message = doc.getString("message") ?: return@forEach
-                    val sender = doc.getString("createdByName") ?: ""
-                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                    val text = TextView(this).apply {
-                        text = if (sender.isBlank()) message else "$message\n— $sender"
-                        textSize = 15f; setTextColor(Color.WHITE); setPadding(0, dp(7), dp(8), dp(7))
-                    }
-                    val close = TextView(this).apply { this.text = "✕"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(4), 0) }
-                    close.setOnClickListener { prefs.edit().putBoolean("hidden_${doc.id}", true).apply(); loadTodayDashboardMessages(container) }
-                    row.addView(text, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(close, LinearLayout.LayoutParams(dp(45), -2))
-                    container.addView(row)
-                }
             }
-            .addOnFailureListener {
-                container.visibility = View.GONE
-            }
+        }
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
     }
 
-    private fun showMessages() {
-        setupSystemBars()
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-        root.addView(createInnerTopBar("💬 Message") { showDashboard(currentRole) })
+    private fun showCareWise() {
+        currentScreen = Screen.CARE_SERIALS
+        selectedCareOf = ""
+        val root = verticalContainer()
+        root.addView(label("👤 কেয়ার অফ ওয়াইজ সিরিয়াল", 24f, DARK_BLUE, true))
+        root.addView(label("এড করা কেয়ার অফ নির্বাচন করুন", 13f, GRAY))
+        root.addView(space(8))
 
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(30))
-        }
-
-        content.addView(TextView(this).apply {
-            text = "💬 তারিখভিত্তিক Message"
-            textSize = 25f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-        })
-        content.addView(TextView(this).apply {
-            text = "যে তারিখ নির্বাচন করবেন, সেই তারিখে প্রত্যেক User / Operator / Admin-এর Dashboard-এর উপরে লাল রঙে Message দেখা যাবে।"
-            textSize = 14f
-            setTextColor(lightText)
-            setPadding(0, dp(6), 0, dp(14))
-        })
-
-        content.addView(createPrimaryButton("＋  নতুন Message") .apply {
-            setBackgroundColor(Color.rgb(21, 101, 192))
-            setTextColor(Color.WHITE)
-            setOnClickListener { showCreateMessageDialog() }
-        }, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, 0, 0, dp(14)) })
-
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Calendar.getInstance().time)
-        db.collection("messages")
-            .orderBy("date", com.google.firebase.firestore.Query.Direction.DESCENDING)
-            .limit(100)
-            .get()
-            .addOnSuccessListener { result ->
-                if (result.isEmpty) {
-                    content.addView(createEmptyText("কোনো Message নেই"))
-                } else {
-                    result.documents.forEach { doc ->
-                        val date = doc.getString("date") ?: ""
-                        val message = doc.getString("message") ?: ""
-                        val sender = doc.getString("createdByName") ?: ""
-                        val card = LinearLayout(this).apply {
-                            orientation = LinearLayout.VERTICAL
-                            setPadding(dp(14), dp(12), dp(14), dp(12))
-                            background = roundedCardDrawable(if (date == today) Color.rgb(255, 235, 238) else Color.WHITE, dp(14))
-                            elevation = dp(2).toFloat()
-                        }
-                        card.addView(TextView(this).apply {
-                            text = "📅 $date"
-                            textSize = 16f
-                            typeface = Typeface.DEFAULT_BOLD
-                            setTextColor(if (date == today) Color.rgb(198, 40, 40) else darkText)
-                        })
-                        card.addView(TextView(this).apply {
-                            text = message
-                            textSize = 16f
-                            setTextColor(darkText)
-                            setPadding(0, dp(7), 0, 0)
-                        })
-                        if (sender.isNotBlank()) {
-                            card.addView(TextView(this).apply {
-                                text = "দিয়েছেন: $sender"
-                                textSize = 13f
-                                setTextColor(lightText)
-                                setPadding(0, dp(5), 0, 0)
-                            })
-                        }
-                        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
-                    }
-                }
+        if (careOfs.isEmpty()) {
+            root.addView(label("কোনো কেয়ার অফ এখনো যোগ করা হয়নি", 15f, GRAY))
+        } else {
+            careOfs.sorted().forEach { care ->
+                root.addView(actionButton("👤   $care", TEAL, 54) {
+                    selectedCareOf = care
+                    showFilteredSerials("কেয়ার অফ: $care", serials.filter { it.careOf == care })
+                })
             }
-            .addOnFailureListener { e ->
-                content.addView(createEmptyText("Message পড়া যায়নি: ${e.message}"))
-            }
-
-        scroll.addView(content)
-        scroll.onPullToRefresh = { refreshCurrentScreen() }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
+        }
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
     }
 
-    private fun showCreateMessageDialog() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), 0, dp(20), 0)
-        }
-        val dateInput = createFormInput("তারিখ নির্বাচন করুন")
-        dateInput.isFocusable = false
-        dateInput.isClickable = true
-        val messageInput = createFormInput("Message লিখুন")
-        messageInput.setSingleLine(false)
-        messageInput.minLines = 5
-        messageInput.gravity = Gravity.TOP
-
-        val selectedDate = Calendar.getInstance()
-        dateInput.setText(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time))
-        dateInput.setOnClickListener {
-            DatePickerDialog(
-                this,
-                { _, year, month, day ->
-                    selectedDate.set(year, month, day)
-                    dateInput.setText(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time))
-                },
-                selectedDate.get(Calendar.YEAR),
-                selectedDate.get(Calendar.MONTH),
-                selectedDate.get(Calendar.DAY_OF_MONTH)
-            ).show()
-        }
-
-        box.addView(TextView(this).apply { text = "কোন দিনের জন্য Message?"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
-        box.addView(dateInput, formParams())
-        box.addView(TextView(this).apply { text = "Message"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(10), 0, dp(4)) })
-        box.addView(messageInput, LinearLayout.LayoutParams(-1, dp(130)).apply { setMargins(0, 0, 0, dp(6)) })
-
-        AlertDialog.Builder(this)
-            .setTitle("নতুন Message")
-            .setView(box)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save", null)
-            .create()
-            .also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val date = dateInput.text.toString().trim()
-                        val message = messageInput.text.toString().trim()
-                        if (date.isEmpty() || message.isEmpty()) {
-                            Toast.makeText(this, "তারিখ ও Message দিন", Toast.LENGTH_SHORT).show()
-                            return@setOnClickListener
-                        }
-                        val data = hashMapOf(
-                            "date" to date,
-                            "message" to message,
-                            "createdByUid" to (auth.currentUser?.uid ?: ""),
-                            "createdByName" to currentUserDisplayName,
-                            "createdByRole" to currentRole,
-                            "createdAt" to FieldValue.serverTimestamp(),
-                            "active" to true
-                        )
-                        db.collection("messages")
-                            .add(data)
-                            .addOnSuccessListener {
-                                dialog.dismiss()
-                                Toast.makeText(this, "Message সংরক্ষণ হয়েছে", Toast.LENGTH_SHORT).show()
-                                showMessages()
-                            }
-                            .addOnFailureListener { e ->
-                                Toast.makeText(this, "Message সংরক্ষণ করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
-                            }
-                    }
-                }
-            }.show()
+    private fun showFilteredSerials(title: String, records: List<SerialRecord>) {
+        val root = verticalContainer()
+        root.addView(label(title, 23f, DARK_BLUE, true))
+        root.addView(label("আজকের ${records.size}টি সিরিয়াল", 15f, TEAL, true))
+        root.addView(space(8))
+        records.sortedBy { it.number }.forEachIndexed { index, record -> root.addView(serialCard(record, true, index + 1)) }
+        if (records.isEmpty()) root.addView(label("আজ এই নির্বাচন অনুযায়ী কোনো সিরিয়াল নেই", 15f, GRAY))
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
     }
 
     // =========================================================
     // ADD SERIAL
     // =========================================================
-
     private fun showAddSerial() {
-
-        currentScreen = SCREEN_ADD_SERIAL
-
-        setupSystemBars()
-
-        selectedAttachmentBase64 = null
-        selectedAttachmentName = ""
-        selectedAttachmentMimeType = ""
-
-        doctorIds.clear()
-        doctorNames.clear()
-
-        careOfIds.clear()
-        careOfNames.clear()
-        careOfAddresses.clear()
-        careOfOptions.clear()
-
-        selectedDoctorId = ""
-        selectedDoctorName = ""
-
-        selectedCareOfId = ""
-        selectedCareOfName = ""
-        selectedCareOfAddress = ""
-
-        selectedSerialDate =
-            SimpleDateFormat(
-                "yyyy-MM-dd",
-                Locale.getDefault()
-            ).format(
-                Calendar.getInstance().time
-            )
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        root.addView(
-            createInnerTopBar(
-                "Add Serial"
-            ) {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll =
-            PullToRefreshScrollView(this).apply {
-                isFillViewport = true
-            }
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(20),
-                    dp(18),
-                    dp(20),
-                    dp(35)
-                )
-            }
-
-        val heading =
-            TextView(this).apply {
-
-                text =
-                    "নতুন রোগীর Serial যোগ করুন"
-
-                textSize = 24f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(18)
-                )
-            }
-
-        content.addView(heading)
-
-        // =====================================================
-        // PATIENT NAME + STAR
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "রোগীর নাম *"
-        )
-
-        val patientRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-            }
-
-        val patientInput =
-            createFormInput(
-                "রোগীর নাম লিখুন"
-            )
-
-        patientInput.textSize = 18f
-
-        addSerialPatientInput =
-            patientInput
-
-        patientRow.addView(
-            patientInput,
-            LinearLayout.LayoutParams(
-                0,
-                dp(62),
-                1f
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    dp(8),
-                    dp(14)
-                )
-            }
-        )
-
-        val starCheck =
-            CheckBox(this).apply {
-
-                text = "☆"
-                textSize = 34f
-                gravity = Gravity.CENTER
-                buttonDrawable = null
-                setTextColor(Color.rgb(145, 145, 145))
-
-                setPadding(
-                    dp(8),
-                    0,
-                    dp(8),
-                    0
-                )
-
-                contentDescription =
-                    "VIP Patient"
-
-                setOnCheckedChangeListener { button, checked ->
-                    button.text = if (checked) "★" else "☆"
-                    button.setTextColor(
-                        if (checked) {
-                            Color.rgb(255, 193, 7)
-                        } else {
-                            Color.rgb(145, 145, 145)
-                        }
-                    )
-                }
-            }
-
-        addSerialStarCheck =
-            starCheck
-
-        val starContainer =
-            LinearLayout(this).apply {
-
-                gravity =
-                    Gravity.CENTER
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(14)
-                    )
-
-                elevation =
-                    dp(2).toFloat()
-            }
-
-        starContainer.addView(
-            starCheck,
-            LinearLayout.LayoutParams(
-                dp(70),
-                dp(62)
-            )
-        )
-
-        patientRow.addView(
-            starContainer,
-            LinearLayout.LayoutParams(
-                dp(72),
-                dp(62)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        content.addView(patientRow)
-
-        // =====================================================
-        // DOCTOR
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "ডাক্তার নির্বাচন করুন *"
-        )
-
-        val doctorRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-            }
-
-        val doctorSpinner =
-            Spinner(this)
-
-        addSerialDoctorSpinner =
-            doctorSpinner
-
-        doctorRow.addView(
-            doctorSpinner,
-            LinearLayout.LayoutParams(
-                0,
-                dp(60),
-                1f
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        content.addView(doctorRow)
-
-        // =====================================================
-        // CARE OF + PLUS
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "কেয়ার অফ"
-        )
-
-        val careRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-            }
-
-        val careSpinner =
-            AutoCompleteTextView(this).apply {
-
-                hint = "কেয়ার অফের নাম লিখুন"
-                textSize = 17f
-                setTextColor(darkText)
-                setHintTextColor(Color.rgb(140, 140, 140))
-                setSingleLine(true)
-                threshold = 2
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(
-                    dp(16),
-                    dp(10),
-                    dp(16),
-                    dp(10)
-                )
-                background = roundedCardDrawable(
-                    Color.WHITE,
-                    dp(12)
-                )
-                setDropDownVerticalOffset(dp(4))
-            }
-
-        addSerialCareOfSpinner =
-            careSpinner
-
-        careRow.addView(
-            careSpinner,
-            LinearLayout.LayoutParams(
-                0,
-                dp(60),
-                1f
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    dp(8),
-                    dp(14)
-                )
-            }
-        )
-
-        val plusButton =
-            Button(this).apply {
-
-                text = "＋"
-
-                textSize = 30f
-
-                setAllCaps(false)
-
-                setTextColor(
-                    primaryColor
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(14)
-                    )
-
-                contentDescription =
-                    "Add Care Of"
-            }
-
-        careRow.addView(
-            plusButton,
-            LinearLayout.LayoutParams(
-                dp(70),
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        content.addView(careRow)
-
-        // =====================================================
-        // SERIAL NUMBER
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "সিরিয়াল নম্বর"
-        )
-
-        val serialNumber =
-            TextView(this).apply {
-
-                text =
-                    "ডাক্তার ও তারিখ নির্বাচন করুন"
-
-                textSize = 21f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setTextColor(
-                    primaryColor
-                )
-
-                setPadding(
-                    dp(18),
-                    0,
-                    dp(18),
-                    0
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(12)
-                    )
-            }
-
-        addSerialNumberText =
-            serialNumber
-
-        content.addView(
-            serialNumber,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        // =====================================================
-        // DATE
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "তারিখ নির্বাচন করুন *"
-        )
-
-        val dateButton =
-            Button(this).apply {
-
-                text =
-                    formatDisplayDate(
-                        selectedSerialDate
-                    )
-
-                textSize = 18f
-
-                setAllCaps(false)
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setTextColor(
-                    darkText
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(12)
-                    )
-
-                setPadding(
-                    dp(16),
-                    0,
-                    dp(16),
-                    0
-                )
-            }
-
-        addSerialDateText =
-            dateButton
-
-        content.addView(
-            dateButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        // =====================================================
-        // DESCRIPTION
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "বিবরণ — Optional"
-        )
-
-        val description =
-            createFormInput(
-                "রোগী সম্পর্কে বিবরণ লিখুন"
-            )
-
-        description.setSingleLine(false)
-        description.minLines = 5
-        description.gravity = Gravity.TOP
-
-        addSerialDescriptionInput =
-            description
-
-        content.addView(
-            description,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(125)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        // =====================================================
-        // ATTACHMENT
-        // =====================================================
-
-        addFormLabel(
-            content,
-            "ডকুমেন্ট / ছবি — Optional"
-        )
-
-        val attachmentRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-            }
-
-        val attachmentText =
-            TextView(this).apply {
-
-                text =
-                    "কোনো ছবি নির্বাচন করা হয়নি"
-
-                textSize = 15f
-
-                setTextColor(
-                    lightText
-                )
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setPadding(
-                    dp(12),
-                    0,
-                    dp(8),
-                    0
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(12)
-                    )
-            }
-
-        addSerialAttachmentText =
-            attachmentText
-
-        attachmentRow.addView(
-            attachmentText,
-            LinearLayout.LayoutParams(
-                0,
-                dp(60),
-                1f
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    dp(8),
-                    dp(14)
-                )
-            }
-        )
-
-        val cameraButton =
-            Button(this).apply {
-
-                text = "📷"
-
-                textSize = 24f
-
-                setAllCaps(false)
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(12)
-                    )
-            }
-
-        attachmentRow.addView(
-            cameraButton,
-            LinearLayout.LayoutParams(
-                dp(65),
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    dp(5),
-                    dp(14)
-                )
-            }
-        )
-
-        val galleryButton =
-            Button(this).apply {
-
-                text = "📎"
-
-                textSize = 24f
-
-                setAllCaps(false)
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(12)
-                    )
-            }
-
-        attachmentRow.addView(
-            galleryButton,
-            LinearLayout.LayoutParams(
-                dp(65),
-                dp(60)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        content.addView(attachmentRow)
-
-        // =====================================================
-        // STATUS
-        // =====================================================
-
-        val status =
-            createStatusText()
-
-        content.addView(status)
-
-        // =====================================================
-        // ADD SERIAL BUTTON
-        // =====================================================
-
-        val saveButton =
-            createPrimaryButton(
-                "সিরিয়াল যোগ করুন"
-            )
-
-        content.addView(
-            saveButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(62)
-            )
-        )
-
-        // =====================================================
-        // LOAD DOCTORS
-        // =====================================================
-
-        loadDoctorsForAddSerial()
-
-        // =====================================================
-        // LOAD CARE OF
-        // =====================================================
-
-        loadCareOfForAddSerial()
-
-        // =====================================================
-        // DATE CLICK
-        // =====================================================
-
-        dateButton.setOnClickListener {
-
-            showAddSerialDatePicker()
-        }
-
-        // =====================================================
-        // DOCTOR CHANGE
-        // =====================================================
-
-        doctorSpinner.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-
-                override fun onNothingSelected(
-                    parent: AdapterView<*>?
-                ) {
-                }
-
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
-                ) {
-
-                    if (
-                        position >= 0 &&
-                        position < doctorIds.size
-                    ) {
-
-                        selectedDoctorId =
-                            doctorIds[position]
-
-                        selectedDoctorName =
-                            doctorNames[position]
-
-                        updateNextSerialPreview()
-                    }
-                }
-            }
-
-        // =====================================================
-        // CARE OF SEARCH / CHANGE
-        // =====================================================
-
-        careSpinner.setOnItemClickListener { parent, _, position, _ ->
-
-            val selected =
-                parent.getItemAtPosition(position) as? CareOfOption
-                    ?: return@setOnItemClickListener
-
-            selectedCareOfId = selected.id
-            selectedCareOfName = selected.name
-            selectedCareOfAddress = selected.address
-        }
-
-        careSpinner.addTextChangedListener(
-            object : TextWatcher {
-
-                override fun beforeTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    count: Int,
-                    after: Int
-                ) {
-                }
-
-                override fun onTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    before: Int,
-                    count: Int
-                ) {
-
-                    val text = s?.toString()?.trim().orEmpty()
-
-                    if (text.length < 2) {
-                        selectedCareOfId = ""
-                        selectedCareOfName = ""
-                        selectedCareOfAddress = ""
-                    }
-                }
-
-                override fun afterTextChanged(
-                    s: Editable?
-                ) {
-                }
-            }
-        )
-
-        // =====================================================
-        // PLUS CARE OF
-        // =====================================================
-
-        plusButton.setOnClickListener {
-
-            showQuickAddCareOfDialog {
-                loadCareOfForAddSerial()
-            }
-        }
-
-        // =====================================================
-        // CAMERA
-        // =====================================================
-
-        cameraButton.setOnClickListener {
-
-            openCamera()
-        }
-
-        // =====================================================
-        // GALLERY
-        // =====================================================
-
-        galleryButton.setOnClickListener {
-
-            openGallery()
-        }
-
-        // =====================================================
-        // SAVE SERIAL
-        // =====================================================
-
-        saveButton.setOnClickListener {
-
-            saveNewSerial(
-                patientInput,
-                starCheck,
-                description,
-                saveButton,
-                status
-            )
-        }
-
-        scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
+        currentScreen = Screen.ADD_SERIAL
+        val root = verticalContainer()
+        root.addView(label("➕ নতুন সিরিয়াল", 25f, DARK_BLUE, true))
+        root.addView(label("শুধু নতুন সিরিয়াল যোগ করুন", 13f, GRAY))
+        root.addView(space(10))
+
+        val card = cardLayout()
+        val patient = input("রোগীর নাম")
+        val careField = careOfField()
+        val care = careField.first
+        val doctor = selectionInput("ডাক্তার নির্বাচন করুন")
+
+        card.addView(label("রোগীর নাম", 14f, DARK_BLUE, true))
+        card.addView(patient)
+        card.addView(space(4))
+        card.addView(label("Care Of", 14f, DARK_BLUE, true))
+        card.addView(careField.second)
+        card.addView(space(4))
+        card.addView(label("ডাক্তার", 14f, DARK_BLUE, true))
+        card.addView(doctor)
+        card.addView(space(8))
+        card.addView(label("সিরিয়াল: $currentUsername • $currentRole", 13f, TEAL, true))
+        card.addView(space(5))
+        card.addView(actionButton("✅   সিরিয়াল তৈরি করুন", GREEN, 58) {
+            val careName = care.text.toString().trim()
+            val doctorName = doctor.tag?.toString()?.trim() ?: doctor.text.toString().trim()
+            saveSerial(patient.text.toString().trim(), careName, doctorName)
+        })
+        root.addView(card)
+
+        // Intentionally no serial list is shown on this page.
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
     }
 
-    // =========================================================
-    // LOAD DOCTORS FOR ADD SERIAL
-    // =========================================================
-
-    private fun loadDoctorsForAddSerial() {
-
-        val spinner =
-            addSerialDoctorSpinner
-                ?: return
-
-        db.collection("doctors")
-            .whereEqualTo(
-                "active",
-                true
-            )
-            .get()
-            .addOnSuccessListener { result ->
-
-                doctorIds.clear()
-                doctorNames.clear()
-
-                val sorted =
-                    result.documents.sortedBy {
-
-                        (
-                            it.getString("name")
-                                ?: ""
-                        ).lowercase()
-                    }
-
-                for (doc in sorted) {
-
-                    doctorIds.add(
-                        doc.id
-                    )
-
-                    doctorNames.add(
-                        doc.getString("name")
-                            ?: "Unknown"
-                    )
-                }
-
-                if (doctorNames.isEmpty()) {
-
-                    doctorNames.add(
-                        "কোনো Doctor পাওয়া যায়নি"
-                    )
-
-                    doctorIds.add("")
-
-                } else {
-
-                    selectedDoctorId =
-                        doctorIds.first()
-
-                    selectedDoctorName =
-                        doctorNames.first()
-                }
-
-                val adapter =
-                    ArrayAdapter(
-                        this,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        doctorNames
-                    )
-
-                spinner.adapter =
-                    adapter
-
-                if (doctorIds.firstOrNull()
-                        ?.isNotEmpty() == true
-                ) {
-                    updateNextSerialPreview()
-                }
-            }
-            .addOnFailureListener { error ->
-
-                Toast.makeText(
-                    this,
-                    "Doctor List পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    // =========================================================
-    // LOAD CARE OF
-    // =========================================================
-
-    private fun loadCareOfForAddSerial() {
-
-        val input =
-            addSerialCareOfSpinner
-                ?: return
-
-        db.collection("careOf")
-            .whereEqualTo(
-                "active",
-                true
-            )
-            .get()
-            .addOnSuccessListener { result ->
-
-                careOfIds.clear()
-                careOfNames.clear()
-                careOfAddresses.clear()
-                careOfOptions.clear()
-
-                val sorted =
-                    result.documents.sortedBy {
-                        (it.getString("name") ?: "").lowercase()
-                    }
-
-                for (doc in sorted) {
-
-                    val name =
-                        doc.getString("name") ?: "Unknown"
-
-                    val address =
-                        doc.getString("address") ?: ""
-
-                    careOfIds.add(doc.id)
-                    careOfNames.add(name)
-                    careOfAddresses.add(address)
-                    careOfOptions.add(
-                        CareOfOption(
-                            doc.id,
-                            name,
-                            address
-                        )
-                    )
-                }
-
-                selectedCareOfId = ""
-                selectedCareOfName = ""
-                selectedCareOfAddress = ""
-
-                val adapter =
-                    object : ArrayAdapter<CareOfOption>(
-                        this,
-                        android.R.layout.simple_list_item_1,
-                        careOfOptions
-                    ) {
-
-                        override fun getView(
-                            position: Int,
-                            convertView: View?,
-                            parent: android.view.ViewGroup
-                        ): View {
-
-                            val view =
-                                super.getView(
-                                    position,
-                                    convertView,
-                                    parent
-                                ) as TextView
-
-                            val option =
-                                getItem(position)
-
-                            view.text =
-                                if (option?.address.isNullOrBlank()) {
-                                    option?.name ?: ""
-                                } else {
-                                    "${option?.name}\n${option?.address}"
-                                }
-
-                            view.setSingleLine(false)
-                            view.maxLines = 3
-                            view.setPadding(
-                                dp(16),
-                                dp(10),
-                                dp(16),
-                                dp(10)
-                            )
-                            view.textSize = 16f
-
-                            return view
-                        }
-                    }
-
-                input.setAdapter(adapter)
-
-                input.setOnItemClickListener { parent, _, position, _ ->
-
-                    val selected =
-                        parent.getItemAtPosition(position) as? CareOfOption
-                            ?: return@setOnItemClickListener
-
-                    selectedCareOfId = selected.id
-                    selectedCareOfName = selected.name
-                    selectedCareOfAddress = selected.address
-
-                    input.setText(
-                        selected.toString(),
-                        false
-                    )
-                }
-            }
-            .addOnFailureListener { error ->
-
-                Toast.makeText(
-                    this,
-                    "Care Of List পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-
-    // =========================================================
-    // CARE OF DUPLICATE NORMALIZATION
-    // =========================================================
-
-    private fun normalizeCareOfValue(value: String): String {
-        return value
-            .trim()
-            .replace(Regex("\\s+"), " ")
-            .lowercase(Locale.getDefault())
-    }
-
-    private fun findDuplicateCareOf(
-        careName: String,
-        careAddress: String,
-        onFound: (DocumentSnapshot) -> Unit,
-        onNotFound: () -> Unit
-    ) {
-        val normalizedName = normalizeCareOfValue(careName)
-        val normalizedAddress = normalizeCareOfValue(careAddress)
-
-        if (normalizedName.isBlank()) {
-            Toast.makeText(
-                this,
-                "Care Of নাম দিন",
-                Toast.LENGTH_SHORT
-            ).show()
-            return
-        }
-
-        // First check the deterministic document ID. This prevents two users
-        // from creating the same Care Of at the same time.
-        val deterministicId = careOfDocumentId(
-            normalizedName,
-            normalizedAddress
-        )
-
-        db.collection("careOf")
-            .document(deterministicId)
-            .get()
-            .addOnSuccessListener { direct ->
-
-                if (direct.exists()) {
-                    onFound(direct)
-                    return@addOnSuccessListener
-                }
-
-                // Also scan older/random-ID documents so Care Of records
-                // created before this protection are recognized as duplicates.
-                db.collection("careOf")
-                    .whereEqualTo("active", true)
-                    .get()
-                    .addOnSuccessListener { result ->
-
-                        val duplicate = result.documents.firstOrNull { doc ->
-                            val existingName = normalizeCareOfValue(
-                                doc.getString("name") ?: ""
-                            )
-                            val existingAddress = normalizeCareOfValue(
-                                doc.getString("address") ?: ""
-                            )
-
-                            existingName == normalizedName &&
-                                    existingAddress == normalizedAddress
-                        }
-
-                        if (duplicate != null) {
-                            onFound(duplicate)
-                        } else {
-                            onNotFound()
-                        }
-                    }
-                    .addOnFailureListener { error ->
-                        Toast.makeText(
-                            this,
-                            "Care Of যাচাই করা যায়নি: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .addOnFailureListener { error ->
-                Toast.makeText(
-                    this,
-                    "Care Of যাচাই করা যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    private fun careOfDocumentId(
-        normalizedName: String,
-        normalizedAddress: String
-    ): String {
-        val raw = "$normalizedName|$normalizedAddress"
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(raw.toByteArray(Charsets.UTF_8))
-
-        return "co_" + digest.joinToString("") { byte ->
-            "%02x".format(byte)
-        }
-    }
-
-    private fun saveCareOfWithoutDuplicate(
-        careName: String,
-        careAddress: String,
-        onSaved: () -> Unit,
-        onDuplicate: (DocumentSnapshot) -> Unit,
-        onError: (Exception) -> Unit
-    ) {
-        val normalizedName = normalizeCareOfValue(careName)
-        val normalizedAddress = normalizeCareOfValue(careAddress)
-        val deterministicId = careOfDocumentId(
-            normalizedName,
-            normalizedAddress
-        )
-
-        findDuplicateCareOf(
-            careName,
-            careAddress,
-            onFound = onDuplicate,
-            onNotFound = {
-                val data = hashMapOf(
-                    "name" to careName.trim().replace(Regex("\\s+"), " "),
-                    "address" to careAddress.trim().replace(Regex("\\s+"), " "),
-                    "normalizedName" to normalizedName,
-                    "normalizedAddress" to normalizedAddress,
-                    "active" to true,
-                    "createdByUid" to (auth.currentUser?.uid ?: ""),
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-
-                // set() with a deterministic ID is the final duplicate guard:
-                // concurrent saves resolve to the same document instead of
-                // creating two random documents with add().
-                db.collection("careOf")
-                    .document(deterministicId)
-                    .set(data)
-                    .addOnSuccessListener { onSaved() }
-                    .addOnFailureListener { error -> onError(error) }
-            }
-        )
-    }
-
-    // =========================================================
-    // QUICK ADD CARE OF
-    // =========================================================
-
-    private fun showQuickAddCareOfDialog(
-        onSaved: () -> Unit
-    ) {
-
-        val container =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(20),
-                    dp(5),
-                    dp(20),
-                    0
-                )
-            }
-
-        val name =
-            createFormInput(
-                "Care Of Name"
-            )
-
-        val address =
-            createFormInput(
-                "Address / ঠিকানা"
-            )
-
-        address.setSingleLine(false)
-        address.minLines = 3
-        address.gravity = Gravity.TOP
-
-        container.addView(
-            name,
-            formParams()
-        )
-
-        container.addView(
-            address,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(90)
-            ).apply {
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(10)
-                )
-            }
-        )
-
-        val dialog =
-            AlertDialog.Builder(this)
-                .setTitle(
-                    "＋ নতুন Care Of যোগ করুন"
-                )
-                .setView(container)
-                .setNegativeButton(
-                    "Cancel",
-                    null
-                )
-                .setPositiveButton(
-                    "Save",
-                    null
-                )
-                .create()
-
-        dialog.setOnShowListener {
-
-            dialog.getButton(
-                AlertDialog.BUTTON_POSITIVE
-            ).setOnClickListener {
-
-                val careName =
-                    name.text.toString().trim()
-
-                val careAddress =
-                    address.text.toString().trim()
-
-                if (careName.isEmpty()) {
-
-                    name.error =
-                        "Care Of নাম দিন"
-
-                    return@setOnClickListener
-                }
-
-                val saveButton =
-                    dialog.getButton(
-                        AlertDialog.BUTTON_POSITIVE
-                    )
-
-                saveButton.isEnabled = false
-
-                findDuplicateCareOf(
-                    careName,
-                    careAddress,
-                    onFound = { existing ->
-
-                        saveButton.isEnabled = true
-
-                        val existingName =
-                            existing.getString("name") ?: careName
-
-                        val existingAddress =
-                            existing.getString("address") ?: careAddress
-
-                        AlertDialog.Builder(this)
-                            .setTitle("Care Of আগে থেকেই আছে")
-                            .setMessage(
-                                if (existingAddress.isBlank()) {
-                                    existingName
-                                } else {
-                                    "$existingName\n$existingAddress"
-                                }
-                            )
-                            .setPositiveButton("ঠিক আছে", null)
-                            .show()
-                    },
-                    onNotFound = {
-
-                        saveCareOfWithoutDuplicate(
-                            careName,
-                            careAddress,
-                            onSaved = {
-                                Toast.makeText(
-                                    this,
-                                    "Care Of সফলভাবে যোগ হয়েছে",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                dialog.dismiss()
-                                onSaved()
-                            },
-                            onDuplicate = { existing ->
-                                saveButton.isEnabled = true
-                                val existingName = existing.getString("name") ?: careName
-                                val existingAddress = existing.getString("address") ?: careAddress
-                                AlertDialog.Builder(this)
-                                    .setTitle("Care Of আগে থেকেই আছে")
-                                    .setMessage(if (existingAddress.isBlank()) existingName else "$existingName\n$existingAddress")
-                                    .setPositiveButton("ঠিক আছে", null)
-                                    .show()
-                            },
-                            onError = { error ->
-                                saveButton.isEnabled = true
-                                Toast.makeText(
-                                    this,
-                                    "Care Of যোগ করা যায়নি: ${error.message}",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        )
-                    }
-                )
-            }
-        }
-
-        dialog.show()
-    }
-
-    // =========================================================
-    // DATE PICKER FOR ADD SERIAL
-    // =========================================================
-
-    private fun showAddSerialDatePicker(onDateSelected: (() -> Unit)? = null) {
-
-        val calendar =
-            Calendar.getInstance()
-
-        try {
-
-            val parsed =
-                SimpleDateFormat(
-                    "yyyy-MM-dd",
-                    Locale.getDefault()
-                ).parse(
-                    selectedSerialDate
-                )
-
-            if (parsed != null) {
-                calendar.time = parsed
-            }
-
-        } catch (_: Exception) {
-        }
-
-        DatePickerDialog(
-            this,
-            { _, year, month, day ->
-
-                val selected =
-                    Calendar.getInstance()
-
-                selected.set(
-                    year,
-                    month,
-                    day
-                )
-
-                selectedSerialDate =
-                    SimpleDateFormat(
-                        "yyyy-MM-dd",
-                        Locale.getDefault()
-                    ).format(
-                        selected.time
-                    )
-
-                addSerialDateText?.text =
-                    formatDisplayDate(
-                        selectedSerialDate
-                    )
-
-                updateNextSerialPreview()
-                onDateSelected?.invoke()
-            },
-            calendar.get(
-                Calendar.YEAR
-            ),
-            calendar.get(
-                Calendar.MONTH
-            ),
-            calendar.get(
-                Calendar.DAY_OF_MONTH
-            )
-        ).apply {
-
-            setTitle(
-                "তারিখ নির্বাচন করুন"
-            )
-
-            show()
-        }
-    }
-
-    // =========================================================
-    // SERIAL PREVIEW
-    // =========================================================
-
-    private fun updateNextSerialPreview() {
-
-        val doctorId =
-            selectedDoctorId
-
-        if (doctorId.isEmpty()) {
-
-            addSerialNumberText?.text =
-                "Doctor নির্বাচন করুন"
-
-            return
-        }
-
-        val counterId =
-            makeCounterId(
-                selectedSerialDate,
-                doctorId
-            )
-
-        db.collection("serialCounters")
-            .document(counterId)
-            .get()
-            .addOnSuccessListener { document ->
-
-                val lastNumber =
-                    document.getLong(
-                        "lastNumber"
-                    ) ?: 0L
-
-                val next =
-                    lastNumber + 1L
-
-                addSerialNumberText?.text =
-                    "পরবর্তী Serial: $next"
-            }
-            .addOnFailureListener {
-
-                addSerialNumberText?.text =
-                    "পরবর্তী Serial: 1"
-            }
-    }
-
-    // =========================================================
-    // SAVE NEW SERIAL
-    // =========================================================
-
-    private fun saveNewSerial(
-        patientInput: EditText,
-        starCheck: CheckBox,
-        description: EditText,
-        saveButton: Button,
-        statusText: TextView
-    ) {
-
-        val patient =
-            patientInput.text.toString().trim()
-
+    private fun saveSerial(patient: String, careOf: String, doctor: String) {
         if (patient.isEmpty()) {
-
-            patientInput.error =
-                "রোগীর নাম দিন"
-
-            patientInput.requestFocus()
-
+            toast("রোগীর নাম লিখুন")
+            return
+        }
+        if (doctor.isEmpty()) {
+            toast("ডাক্তার নির্বাচন করুন")
             return
         }
 
-        if (selectedDoctorId.isEmpty()) {
-
-            Toast.makeText(
-                this,
-                "প্রথমে Doctor নির্বাচন করুন",
-                Toast.LENGTH_LONG
-            ).show()
-
+        if (!firebaseAvailable) {
+            saveSerialLocal(patient, careOf, doctor)
             return
         }
 
-        val loggedInUser = auth.currentUser
+        val dateKey = todayKey()
+        val counterRef = rootRef.child("counters").child(dateKey)
+        counterRef.runTransaction(object : Transaction.Handler {
+            override fun doTransaction(currentData: MutableData): Transaction.Result {
+                val current = currentData.getValue(Int::class.java) ?: 0
+                currentData.value = current + 1
+                return Transaction.success(currentData)
+            }
 
-        if (loggedInUser == null) {
-            saveButton.isEnabled = true
-            statusText.text = ""
-            Toast.makeText(
-                this,
-                "আপনার Login session পাওয়া যায়নি। আবার Login করুন।",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-
-        val loggedInUid = loggedInUser.uid
-
-        val doctorId =
-            selectedDoctorId
-
-        val doctorName =
-            selectedDoctorName
-
-        val date =
-            selectedSerialDate
-
-        saveButton.isEnabled = false
-
-        statusText.text =
-            "Serial তৈরি হচ্ছে..."
-
-        // =====================================================
-        // IMPORTANT
-        //
-        // Date + Doctor অনুযায়ী unique counter document.
-        //
-        // Firestore transaction ব্যবহার করার কারণে
-        // একই সময়ে একাধিক user Serial নিলেও duplicate
-        // number তৈরি হবে না।
-        // =====================================================
-
-        val counterId =
-            makeCounterId(
-                date,
-                doctorId
-            )
-
-        val counterRef =
-            db.collection(
-                "serialCounters"
-            ).document(counterId)
-
-        val serialRef =
-            db.collection(
-                "serials"
-            ).document()
-
-        db.runTransaction { transaction ->
-
-            val counterSnapshot =
-                transaction.get(
-                    counterRef
-                )
-
-            val lastNumber =
-                counterSnapshot.getLong(
-                    "lastNumber"
-                ) ?: 0L
-
-            val nextNumber =
-                lastNumber + 1L
-
-            val counterData =
-                hashMapOf<String, Any>(
-                    "date" to date,
-                    "doctorId" to doctorId,
-                    "doctorName" to doctorName,
-                    "lastNumber" to nextNumber,
-                    "updatedAt" to
-                            FieldValue.serverTimestamp()
-                )
-
-            transaction.set(
-                counterRef,
-                counterData,
-                SetOptions.merge()
-            )
-
-            val serialData =
-                hashMapOf<String, Any>(
-                    "number" to nextNumber,
+            override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {
+                if (error != null || !committed) {
+                    toast("সিরিয়াল তৈরি করা যায়নি")
+                    return
+                }
+                val number = currentData?.getValue(Int::class.java) ?: return
+                val id = number.toString()
+                val record = mapOf(
+                    "number" to number,
+                    "dateKey" to dateKey,
                     "patient" to patient,
-
-                    "patientVip" to
-                            starCheck.isChecked,
-
-                    "doctorId" to doctorId,
-                    "doctorName" to doctorName,
-
-                    "careOfId" to
-                            selectedCareOfId,
-
-                    "careOfName" to
-                            selectedCareOfName,
-
-                    "careOfAddress" to
-                            selectedCareOfAddress,
-
-                    "createdDate" to date,
-
-                    "description" to
-                            description.text.toString().trim(),
-
+                    "careOf" to careOf,
+                    "doctor" to doctor,
                     "status" to "Waiting",
-
-                    "createdByUid" to
-                            loggedInUid,
-
-                    "createdByName" to
-                            (
-                                currentUserDisplayName.ifBlank {
-                                    auth.currentUser?.email
-                                        ?: auth.currentUser?.uid
-                                        ?: ""
-                                }
-                            ),
-
-                    "createdByRole" to
-                            currentRole,
-
-                    "createdAt" to
-                            FieldValue.serverTimestamp()
+                    "createdBy" to currentUsername,
+                    "createdRole" to currentRole,
+                    "createdAt" to currentTime24()
                 )
-
-            if (
-                !selectedAttachmentBase64.isNullOrEmpty()
-            ) {
-
-                serialData["attachmentBase64"] =
-                    selectedAttachmentBase64 ?: ""
-
-                serialData["attachmentName"] =
-                    selectedAttachmentName
-
-                serialData["attachmentMimeType"] =
-                    selectedAttachmentMimeType
-
-                serialData["hasAttachment"] =
-                    true
-
-            } else {
-
-                serialData["attachmentMimeType"] =
-                    ""
-
-                serialData["hasAttachment"] =
-                    false
-            }
-
-            transaction.set(
-                serialRef,
-                serialData
-            )
-
-            nextNumber
-
-        }.addOnSuccessListener { number ->
-
-            saveButton.isEnabled = true
-
-            statusText.text =
-                "Serial #$number সফলভাবে যোগ হয়েছে ✓"
-
-            Toast.makeText(
-                this,
-                "Serial #$number সফলভাবে যোগ হয়েছে",
-                Toast.LENGTH_LONG
-            ).show()
-
-            patientInput.text.clear()
-
-            starCheck.isChecked = false
-
-            description.text.clear()
-
-            selectedAttachmentBase64 = null
-            selectedAttachmentName = ""
-            selectedAttachmentMimeType = ""
-            selectedCareOfId = ""
-            selectedCareOfName = ""
-            selectedCareOfAddress = ""
-            addSerialCareOfSpinner?.setText("", false)
-
-            addSerialAttachmentText?.text =
-                "কোনো ছবি নির্বাচন করা হয়নি"
-
-            updateNextSerialPreview()
-
-        }.addOnFailureListener { error ->
-
-            saveButton.isEnabled = true
-
-            statusText.text = ""
-
-            Toast.makeText(
-                this,
-                "Serial তৈরি করা যায়নি: ${error.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // =========================================================
-    // COUNTER ID
-    // =========================================================
-
-    private fun makeCounterId(
-        date: String,
-        doctorId: String
-    ): String {
-
-        return "${date}_${doctorId}"
-    }
-
-    // =========================================================
-    // DISPLAY DATE
-    // =========================================================
-
-    private fun formatDisplayDate(
-        date: String
-    ): String {
-
-        return try {
-
-            val parsed =
-                SimpleDateFormat(
-                    "yyyy-MM-dd",
-                    Locale.getDefault()
-                ).parse(date)
-
-            if (parsed != null) {
-
-                SimpleDateFormat(
-                    "dd-MM-yyyy",
-                    Locale.getDefault()
-                ).format(parsed)
-
-            } else {
-                date
-            }
-
-        } catch (_: Exception) {
-            date
-        }
-    }
-
-    // =========================================================
-    // GALLERY
-    // =========================================================
-
-    private fun openGallery() {
-
-        val intent =
-            Intent(
-                Intent.ACTION_OPEN_DOCUMENT
-            ).apply {
-
-                type = "*/*"
-
-                putExtra(
-                    Intent.EXTRA_MIME_TYPES,
-                    arrayOf(
-                        "image/*",
-                        "application/pdf"
-                    )
-                )
-
-                addCategory(
-                    Intent.CATEGORY_OPENABLE
-                )
-
-                addFlags(
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-
-        startActivityForResult(
-            Intent.createChooser(
-                intent,
-                "ছবি / PDF ডকুমেন্ট নির্বাচন করুন"
-            ),
-            REQUEST_GALLERY
-        )
-    }
-
-    // =========================================================
-    // CAMERA
-    // =========================================================
-
-    private fun openCamera() {
-
-        try {
-
-            val intent =
-                Intent(
-                    MediaStore.ACTION_IMAGE_CAPTURE
-                )
-
-            startActivityForResult(
-                intent,
-                REQUEST_CAMERA
-            )
-
-        } catch (error: Exception) {
-
-            Toast.makeText(
-                this,
-                "Camera চালু করা যায়নি",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // =========================================================
-    // ACTIVITY RESULT
-    // =========================================================
-
-    @Deprecated("Deprecated in Android API")
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
-
-        super.onActivityResult(
-            requestCode,
-            resultCode,
-            data
-        )
-
-        if (resultCode != RESULT_OK) {
-            return
-        }
-
-        if (requestCode == REQUEST_REPORT_PDF) {
-
-            val source = pendingReportPdfFile
-            val destination = data?.data
-
-            if (resultCode == RESULT_OK && source != null && destination != null) {
-                try {
-                    contentResolver.openOutputStream(destination)?.use { output ->
-                        source.inputStream().use { input ->
-                            input.copyTo(output)
-                        }
+                rootRef.child("serials").child(dateKey).child(id).setValue(record)
+                    .addOnSuccessListener {
+                        toast("সিরিয়াল #$number তৈরি হয়েছে")
+                        showDashboard()
                     }
-                    source.delete()
-                    pendingReportPdfFile = null
-                    Toast.makeText(
-                        this,
-                        "PDF সফলভাবে Save হয়েছে",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } catch (error: Exception) {
-                    Toast.makeText(
-                        this,
-                        "PDF Save করা যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+                    .addOnFailureListener { toast("ডাটা সংরক্ষণ করা যায়নি") }
             }
+        })
+    }
 
-            return
-        }
-
-        when (requestCode) {
-
-            REQUEST_GALLERY -> {
-
-                val uri =
-                    data?.data
-
-                if (uri != null) {
-
-                    processSelectedAttachment(
-                        uri
-                    )
-                }
-            }
-
-            REQUEST_CAMERA -> {
-
-                val bitmap =
-                    data?.extras?.get(
-                        "data"
-                    ) as? Bitmap
-
-                if (bitmap != null) {
-
-                    processCameraBitmap(
-                        bitmap
-                    )
-                }
+    private fun saveSerialLocal(patient: String, careOf: String, doctor: String) {
+        val dateKey = todayKey()
+        var next = 1
+        for (key in pref.all.keys) {
+            if (key.startsWith(LOCAL_SERIAL_PREFIX + dateKey + "_")) {
+                next = maxOf(next, (key.substringAfterLast("_").toIntOrNull() ?: 0) + 1)
             }
         }
+        val key = LOCAL_SERIAL_PREFIX + dateKey + "_" + next
+        val value = listOf(patient, careOf, doctor, "Waiting", currentUsername, currentRole, currentTime24()).joinToString("||")
+        pref.edit().putString(key, value).apply()
+        loadLocalData()
+        toast("সিরিয়াল #$next তৈরি হয়েছে")
+        showDashboard()
     }
 
     // =========================================================
-    // PROCESS GALLERY / DOCUMENT ATTACHMENT
+    // DOCTOR / CARE OF MANAGEMENT
     // =========================================================
-
-    private fun processSelectedAttachment(
-        uri: Uri
-    ) {
-
-        try {
-
-            val mimeType =
-                contentResolver.getType(uri)
-                    ?: ""
-
-            if (mimeType.startsWith("image/")) {
-
-                val inputStream =
-                    contentResolver.openInputStream(
-                        uri
-                    )
-
-                val bitmap =
-                    BitmapFactory.decodeStream(
-                        inputStream
-                    )
-
-                inputStream?.close()
-
-                if (bitmap == null) {
-
-                    Toast.makeText(
-                        this,
-                        "ছবিটি পড়া যায়নি",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    return
-                }
-
-                selectedAttachmentBase64 =
-                    bitmapToBase64(
-                        bitmap
-                    )
-
-                selectedAttachmentName =
-                    "gallery_${System.currentTimeMillis()}.jpg"
-
-                selectedAttachmentMimeType =
-                    "image/jpeg"
-
-                addSerialAttachmentText?.text =
-                    "📎 ছবি সংযুক্ত হয়েছে"
-
-                return
-            }
-
-            if (mimeType == "application/pdf") {
-
-                val bytes =
-                    contentResolver.openInputStream(
-                        uri
-                    )?.use {
-                        it.readBytes()
-                    }
-
-                if (bytes == null || bytes.isEmpty()) {
-
-                    Toast.makeText(
-                        this,
-                        "ডকুমেন্টটি পড়া যায়নি",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    return
-                }
-
-                // Firestore document size is limited.
-                // Keep direct PDF attachments safely below that limit.
-                if (bytes.size > 500_000) {
-
-                    Toast.makeText(
-                        this,
-                        "PDF ফাইলটি খুব বড়। 500 KB-এর মধ্যে PDF দিন।",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    return
-                }
-
-                selectedAttachmentBase64 =
-                    Base64.encodeToString(
-                        bytes,
-                        Base64.NO_WRAP
-                    )
-
-                selectedAttachmentName =
-                    "document_${System.currentTimeMillis()}.pdf"
-
-                selectedAttachmentMimeType =
-                    "application/pdf"
-
-                addSerialAttachmentText?.text =
-                    "📎 PDF ডকুমেন্ট সংযুক্ত হয়েছে"
-
-                return
-            }
-
-            Toast.makeText(
-                this,
-                "শুধু ছবি অথবা PDF ডকুমেন্ট নির্বাচন করুন",
-                Toast.LENGTH_LONG
-            ).show()
-
-        } catch (error: Exception) {
-
-            Toast.makeText(
-                this,
-                "ডকুমেন্ট নির্বাচন করা যায়নি: ${error.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // =========================================================
-    // PROCESS CAMERA BITMAP
-    // =========================================================
-
-    private fun processCameraBitmap(
-        bitmap: Bitmap
-    ) {
-
-        try {
-
-            selectedAttachmentBase64 =
-                bitmapToBase64(
-                    bitmap
-                )
-
-            selectedAttachmentName =
-                "camera_${System.currentTimeMillis()}.jpg"
-
-            addSerialAttachmentText?.text =
-                "📷 Camera ছবি সংযুক্ত হয়েছে"
-
-        } catch (error: Exception) {
-
-            Toast.makeText(
-                this,
-                "Camera ছবি সংরক্ষণ করা যায়নি",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    // =========================================================
-    // BITMAP TO BASE64
-    // =========================================================
-
-    private fun bitmapToBase64(
-        original: Bitmap
-    ): String {
-
-        val scaled =
-            scaleBitmap(
-                original,
-                MAX_IMAGE_WIDTH,
-                MAX_IMAGE_HEIGHT
-            )
-
-        val outputStream =
-            ByteArrayOutputStream()
-
-        scaled.compress(
-            Bitmap.CompressFormat.JPEG,
-            45,
-            outputStream
-        )
-
-        val bytes =
-            outputStream.toByteArray()
-
-        return Base64.encodeToString(
-            bytes,
-            Base64.NO_WRAP
-        )
-    }
-
-    // =========================================================
-    // SCALE BITMAP
-    // =========================================================
-
-    private fun scaleBitmap(
-        bitmap: Bitmap,
-        maxWidth: Int,
-        maxHeight: Int
-    ): Bitmap {
-
-        val width =
-            bitmap.width.toFloat()
-
-        val height =
-            bitmap.height.toFloat()
-
-        val ratio =
-            minOf(
-                maxWidth / width,
-                maxHeight / height,
-                1f
-            )
-
-        if (ratio >= 1f) {
-            return bitmap
-        }
-
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            (width * ratio).toInt(),
-            (height * ratio).toInt(),
-            true
-        )
-    }
-
-    // =========================================================
-    // ADD DOCTOR
-    // =========================================================
-
     private fun showAddDoctor() {
+        currentScreen = Screen.ADD_DOCTOR
+        val root = verticalContainer()
+        root.addView(label("👨‍⚕️ অ্যাড ডাক্তার", 25f, DARK_BLUE, true))
+        root.addView(label("ডাক্তারের নাম যোগ করুন", 13f, GRAY))
+        root.addView(space(10))
+        val name = input("ডাক্তারের নাম")
+        root.addView(name)
+        root.addView(actionButton("＋   ডাক্তার যোগ করুন", TEAL, 56) { addNamedItem("doctors", name.text.toString().trim()) })
+        root.addView(space(12))
+        doctors.sorted().forEach { root.addView(label("• $it", 15f, DARK)) }
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
+    }
 
-        if (currentRole != "admin") {
+    private fun showAddCare() {
+        currentScreen = Screen.ADD_CARE
+        val root = verticalContainer()
+        root.addView(label("👤 অ্যাড কেয়ার অফ", 25f, DARK_BLUE, true))
+        root.addView(label("কেয়ার অফ / অভিভাবকের নাম যোগ করুন", 13f, GRAY))
+        root.addView(space(10))
+        val name = input("Care Of নাম")
+        root.addView(name)
+        root.addView(actionButton("＋   কেয়ার অফ যোগ করুন", TEAL, 56) { addNamedItem("careOfs", name.text.toString().trim()) })
+        root.addView(space(12))
+        careOfs.sorted().forEach { root.addView(label("• $it", 15f, DARK)) }
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
+    }
 
-            Toast.makeText(
-                this,
-                "শুধুমাত্র Admin এই কাজ করতে পারবেন",
-                Toast.LENGTH_LONG
-            ).show()
-
+    private fun addNamedItem(collection: String, value: String, onSuccess: (() -> Unit)? = null) {
+        if (!currentRole.equals("Admin", true)) {
+            toast("শুধুমাত্র Admin যোগ করতে পারবেন")
+            return
+        }
+        if (value.isEmpty()) {
+            toast("নাম লিখুন")
             return
         }
 
-        currentScreen = SCREEN_ADD_DOCTOR
-
-        setupSystemBars()
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
+        if (!firebaseAvailable) {
+            val exists = if (collection == "doctors") {
+                doctors.any { it.equals(value, true) }
+            } else {
+                careOfs.any { it.equals(value, true) }
             }
-
-        root.addView(
-            createInnerTopBar(
-                "Add Doctor"
-            ) {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll =
-            PullToRefreshScrollView(this)
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(20),
-                    dp(20),
-                    dp(20),
-                    dp(30)
-                )
-            }
-
-        val heading =
-            TextView(this).apply {
-
-                text =
-                    "নতুন ডাক্তার যোগ করুন"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(20)
-                )
-            }
-
-        content.addView(heading)
-
-        addFormLabel(
-            content,
-            "ডাক্তারের নাম *"
-        )
-
-        val name =
-            createFormInput(
-                "যেমন: ডাঃ আব্দুল্লাহ আল মুজাহিদ"
-            )
-
-        content.addView(
-            name,
-            formParams()
-        )
-
-        addFormLabel(
-            content,
-            "শিক্ষাগত যোগ্যতা"
-        )
-
-        val qualification =
-            createFormInput(
-                "যেমন: MBBS, BCS (Health), MD"
-            )
-
-        content.addView(
-            qualification,
-            formParams()
-        )
-
-        addFormLabel(
-            content,
-            "বিশেষজ্ঞতা"
-        )
-
-        val specialty =
-            createFormInput(
-                "যেমন: Medicine Specialist"
-            )
-
-        content.addView(
-            specialty,
-            formParams()
-        )
-
-        addFormLabel(
-            content,
-            "রোগী দেখার সময়"
-        )
-
-        val visitingTime =
-            createFormInput(
-                "যেমন: শুক্রবার সন্ধ্যা ৬টা - রাত ১০টা"
-            )
-
-        content.addView(
-            visitingTime,
-            formParams()
-        )
-
-        addFormLabel(
-            content,
-            "মোবাইল নম্বর"
-        )
-
-        val mobile =
-            createFormInput(
-                "01XXXXXXXXX"
-            )
-
-        mobile.inputType =
-            InputType.TYPE_CLASS_PHONE
-
-        content.addView(
-            mobile,
-            formParams()
-        )
-
-        val status =
-            createStatusText()
-
-        content.addView(status)
-
-        val save =
-            createPrimaryButton(
-                "💾  SAVE DOCTOR"
-            )
-
-        content.addView(
-            save,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            )
-        )
-
-        save.setOnClickListener {
-
-            val doctorName =
-                name.text.toString().trim()
-
-            if (doctorName.isEmpty()) {
-
-                name.error =
-                    "ডাক্তারের নাম দিন"
-
-                name.requestFocus()
-
-                return@setOnClickListener
-            }
-
-            save.isEnabled = false
-
-            status.text =
-                "Doctor সংরক্ষণ হচ্ছে..."
-
-            val data =
-                hashMapOf(
-                    "name" to doctorName,
-                    "qualification" to
-                            qualification.text.toString().trim(),
-                    "specialty" to
-                            specialty.text.toString().trim(),
-                    "visitingTime" to
-                            visitingTime.text.toString().trim(),
-                    "mobile" to
-                            mobile.text.toString().trim(),
-                    "active" to true,
-                    "createdByUid" to
-                            (
-                                auth.currentUser?.uid
-                                    ?: ""
-                            ),
-                    "createdAt" to
-                            FieldValue.serverTimestamp()
-                )
-
-            db.collection("doctors")
-                .add(data)
-                .addOnSuccessListener {
-
-                    save.isEnabled = true
-
-                    status.text =
-                        "Doctor সফলভাবে যোগ হয়েছে ✓"
-
-                    Toast.makeText(
-                        this,
-                        "Doctor সফলভাবে যোগ হয়েছে",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    name.text.clear()
-                    qualification.text.clear()
-                    specialty.text.clear()
-                    visitingTime.text.clear()
-                    mobile.text.clear()
-                }
-                .addOnFailureListener { error ->
-
-                    save.isEnabled = true
-
-                    status.text = ""
-
-                    Toast.makeText(
-                        this,
-                        "Doctor যোগ করা যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        }
-
-        scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
-    }
-
-    // =========================================================
-    // DOCTOR LIST
-    // =========================================================
-
-    private fun showDoctorList() {
-
-        currentScreen = SCREEN_DOCTOR_LIST
-
-        setupSystemBars()
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        root.addView(
-            createInnerTopBar(
-                "Doctor List"
-            ) {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll =
-            PullToRefreshScrollView(this)
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(16),
-                    dp(16),
-                    dp(16),
-                    dp(30)
-                )
-            }
-
-        val heading =
-            TextView(this).apply {
-
-                text =
-                    "👨‍⚕️ Doctor List"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(15)
-                )
-            }
-
-        content.addView(heading)
-
-        val progress =
-            ProgressBar(this)
-
-        content.addView(
-            progress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(50)
-            ).apply {
-                gravity =
-                    Gravity.CENTER
-            }
-        )
-
-        scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
-
-        db.collection("doctors")
-            .whereEqualTo(
-                "active",
-                true
-            )
-            .get()
-            .addOnSuccessListener { result ->
-
-                progress.visibility =
-                    View.GONE
-
-                if (result.isEmpty) {
-
-                    content.addView(
-                        createEmptyText(
-                            "কোনো Doctor পাওয়া যায়নি"
-                        )
-                    )
-
-                    return@addOnSuccessListener
-                }
-
-                val doctors =
-                    result.documents.sortedBy {
-
-                        (
-                            it.getString("name")
-                                ?: ""
-                        ).lowercase()
-                    }
-
-                for (document in doctors) {
-
-                    val doctorName =
-                        document.getString(
-                            "name"
-                        ) ?: "Unknown Doctor"
-
-                    val specialty =
-                        document.getString(
-                            "specialty"
-                        ) ?: ""
-
-                    val qualification =
-                        document.getString(
-                            "qualification"
-                        ) ?: ""
-
-                    val visitingTime =
-                        document.getString(
-                            "visitingTime"
-                        ) ?: ""
-
-                    val mobile =
-                        document.getString(
-                            "mobile"
-                        ) ?: ""
-
-                    val card =
-                        createDoctorListCard(
-                            document.id,
-                            doctorName,
-                            specialty,
-                            qualification,
-                            visitingTime,
-                            mobile
-                        )
-
-                    card.setOnClickListener {
-
-                        showDoctorDateSelection(
-                            document.id,
-                            doctorName
-                        )
-                    }
-
-                    content.addView(card)
-                }
-            }
-            .addOnFailureListener { error ->
-
-                progress.visibility =
-                    View.GONE
-
-                Toast.makeText(
-                    this,
-                    "Doctor List পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    // =========================================================
-    // DOCTOR CARD
-    // =========================================================
-
-    private fun createDoctorListCard(
-        doctorId: String,
-        name: String,
-        specialty: String,
-        qualification: String,
-        visitingTime: String,
-        mobile: String
-    ): LinearLayout {
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(18),
-                    dp(16),
-                    dp(18),
-                    dp(16)
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(16)
-                    )
-
-                elevation =
-                    dp(3).toFloat()
-            }
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    "👨‍⚕️ $name"
-
-                textSize = 20f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    primaryColor
-                )
-            }
-
-        card.addView(title)
-
-        if (qualification.isNotEmpty()) {
-            card.addView(
-                createInfoText(
-                    "🎓 Qualification",
-                    qualification
-                )
-            )
-        }
-
-        if (specialty.isNotEmpty()) {
-            card.addView(
-                createInfoText(
-                    "🩺 Specialty",
-                    specialty
-                )
-            )
-        }
-
-        if (visitingTime.isNotEmpty()) {
-            card.addView(
-                createInfoText(
-                    "🕐 Visiting",
-                    visitingTime
-                )
-            )
-        }
-
-        if (mobile.isNotEmpty()) {
-            card.addView(
-                createInfoText(
-                    "📱 Mobile",
-                    mobile
-                )
-            )
-        }
-
-        if (currentRole == "admin") {
-
-            val buttonRow =
-                LinearLayout(this).apply {
-
-                    orientation =
-                        LinearLayout.HORIZONTAL
-
-                    gravity =
-                        Gravity.END
-
-                    setPadding(
-                        0,
-                        dp(12),
-                        0,
-                        0
-                    )
-                }
-
-            val editButton =
-                createSmallButton(
-                    "✏ Edit"
-                )
-
-            editButton.setOnClickListener {
-
-                showEditDoctorDialog(
-                    doctorId
-                )
-            }
-
-            val deleteButton =
-                createSmallButton(
-                    "🗑 Delete"
-                )
-
-            deleteButton.setOnClickListener {
-
-                confirmDeleteDoctor(
-                    doctorId,
-                    name
-                )
-            }
-
-            buttonRow.addView(editButton)
-            buttonRow.addView(deleteButton)
-
-            card.addView(buttonRow)
-        }
-
-        card.addView(
-            createInfoText(
-                "",
-                "Tap করুন → তারিখ নির্বাচন করে Serial দেখুন"
-            )
-        )
-
-        card.layoutParams =
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-
-                setMargins(
-                    0,
-                    dp(6),
-                    0,
-                    dp(6)
-                )
-            }
-
-        return card
-    }
-
-    // =========================================================
-    // EDIT DOCTOR
-    // =========================================================
-
-    private fun showEditDoctorDialog(
-        doctorId: String
-    ) {
-
-        if (currentRole != "admin") {
-
-            Toast.makeText(
-                this,
-                "শুধুমাত্র Admin Doctor Edit করতে পারবেন",
-                Toast.LENGTH_LONG
-            ).show()
-
-            return
-        }
-
-        db.collection("doctors")
-            .document(doctorId)
-            .get()
-            .addOnSuccessListener { document ->
-
-                if (!document.exists()) {
-
-                    Toast.makeText(
-                        this,
-                        "Doctor পাওয়া যায়নি",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    return@addOnSuccessListener
-                }
-
-                val container =
-                    LinearLayout(this).apply {
-
-                        orientation =
-                            LinearLayout.VERTICAL
-
-                        setPadding(
-                            dp(20),
-                            dp(5),
-                            dp(20),
-                            0
-                        )
-                    }
-
-                val name =
-                    createFormInput(
-                        "ডাক্তারের নাম"
-                    )
-
-                name.setText(
-                    document.getString("name")
-                        ?: ""
-                )
-
-                val qualification =
-                    createFormInput(
-                        "Qualification"
-                    )
-
-                qualification.setText(
-                    document.getString(
-                        "qualification"
-                    ) ?: ""
-                )
-
-                val specialty =
-                    createFormInput(
-                        "Specialty"
-                    )
-
-                specialty.setText(
-                    document.getString(
-                        "specialty"
-                    ) ?: ""
-                )
-
-                val visitingTime =
-                    createFormInput(
-                        "Visiting Time"
-                    )
-
-                visitingTime.setText(
-                    document.getString(
-                        "visitingTime"
-                    ) ?: ""
-                )
-
-                val mobile =
-                    createFormInput(
-                        "Mobile"
-                    )
-
-                mobile.inputType =
-                    InputType.TYPE_CLASS_PHONE
-
-                mobile.setText(
-                    document.getString(
-                        "mobile"
-                    ) ?: ""
-                )
-
-                container.addView(
-                    name,
-                    formParams()
-                )
-
-                container.addView(
-                    qualification,
-                    formParams()
-                )
-
-                container.addView(
-                    specialty,
-                    formParams()
-                )
-
-                container.addView(
-                    visitingTime,
-                    formParams()
-                )
-
-                container.addView(
-                    mobile,
-                    formParams()
-                )
-
-                AlertDialog.Builder(this)
-                    .setTitle(
-                        "✏ Edit Doctor"
-                    )
-                    .setView(container)
-                    .setNegativeButton(
-                        "Cancel",
-                        null
-                    )
-                    .setPositiveButton(
-                        "Save"
-                    ) { _: DialogInterface, _: Int ->
-
-                        val doctorName =
-                            name.text.toString().trim()
-
-                        if (
-                            doctorName.isEmpty()
-                        ) {
-
-                            Toast.makeText(
-                                this,
-                                "Doctor Name দিন",
-                                Toast.LENGTH_SHORT
-                            ).show()
-
-                            return@setPositiveButton
-                        }
-
-                        val updateData =
-                            hashMapOf<String, Any>(
-                                "name" to doctorName,
-                                "qualification" to
-                                        qualification.text.toString().trim(),
-                                "specialty" to
-                                        specialty.text.toString().trim(),
-                                "visitingTime" to
-                                        visitingTime.text.toString().trim(),
-                                "mobile" to
-                                        mobile.text.toString().trim()
-                            )
-
-                        db.collection("doctors")
-                            .document(doctorId)
-                            .update(
-                                updateData
-                            )
-                            .addOnSuccessListener {
-
-                                Toast.makeText(
-                                    this,
-                                    "Doctor Update হয়েছে",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                showDoctorList()
-                            }
-                            .addOnFailureListener { error ->
-
-                                Toast.makeText(
-                                    this,
-                                    "Update ব্যর্থ: ${error.message}",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                    }
-                    .show()
-            }
-            .addOnFailureListener { error ->
-
-                Toast.makeText(
-                    this,
-                    "Doctor তথ্য পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    // =========================================================
-    // DELETE DOCTOR
-    // =========================================================
-
-    private fun confirmDeleteDoctor(
-        doctorId: String,
-        doctorName: String
-    ) {
-
-        if (currentRole != "admin") {
-
-            Toast.makeText(
-                this,
-                "শুধুমাত্র Admin Doctor Delete করতে পারবেন",
-                Toast.LENGTH_LONG
-            ).show()
-
-            return
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(
-                "Doctor Delete"
-            )
-            .setMessage(
-                "আপনি কি \"$doctorName\" Doctor-কে Delete করতে চান?"
-            )
-            .setNegativeButton(
-                "না",
-                null
-            )
-            .setPositiveButton(
-                "হ্যাঁ, Delete"
-            ) { _, _ ->
-
-                db.collection("doctors")
-                    .document(doctorId)
-                    .delete()
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Doctor Delete হয়েছে",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        showDoctorList()
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Delete ব্যর্থ: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .show()
-    }
-
-    // =========================================================
-    // DOCTOR DATE
-    // =========================================================
-
-    private fun showDoctorDateSelection(
-        doctorId: String,
-        doctorName: String
-    ) {
-
-        val calendar =
-            Calendar.getInstance()
-
-        DatePickerDialog(
-            this,
-            { _, year, month, day ->
-
-                val selected =
-                    Calendar.getInstance()
-
-                selected.set(
-                    year,
-                    month,
-                    day
-                )
-
-                val date =
-                    SimpleDateFormat(
-                        "yyyy-MM-dd",
-                        Locale.getDefault()
-                    ).format(
-                        selected.time
-                    )
-
-                showDoctorSerials(
-                    doctorId,
-                    doctorName,
-                    date
-                )
-            },
-            calendar.get(
-                Calendar.YEAR
-            ),
-            calendar.get(
-                Calendar.MONTH
-            ),
-            calendar.get(
-                Calendar.DAY_OF_MONTH
-            )
-        ).apply {
-
-            setTitle(
-                "তারিখ নির্বাচন করুন"
-            )
-
-            show()
-        }
-    }
-
-    // =========================================================
-    // DOCTOR SERIAL
-    // =========================================================
-
-    private fun showDoctorSerials(
-        doctorId: String,
-        doctorName: String,
-        date: String
-    ) {
-
-        serialParentScreen =
-            SCREEN_DOCTOR_LIST
-
-        showSerialListPage(
-            title =
-                "Doctor: $doctorName",
-            filterField =
-                "doctorId",
-            filterValue =
-                doctorId,
-            date =
-                date
-        )
-    }
-
-    // =========================================================
-    // CARE OF LIST
-    // =========================================================
-
-    private fun showCareOfList() {
-
-        currentScreen = SCREEN_CAREOF_LIST
-
-        setupSystemBars()
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        root.addView(
-            createInnerTopBar(
-                "Care Of List"
-            ) {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll =
-            PullToRefreshScrollView(this)
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(16),
-                    dp(16),
-                    dp(16),
-                    dp(30)
-                )
-            }
-
-        val heading =
-            TextView(this).apply {
-
-                text =
-                    "👤 Care Of List"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(15)
-                )
-            }
-
-        content.addView(heading)
-
-        val progress =
-            ProgressBar(this)
-
-        content.addView(
-            progress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(50)
-            ).apply {
-                gravity =
-                    Gravity.CENTER
-            }
-        )
-
-        scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
-
-        db.collection("careOf")
-            .whereEqualTo(
-                "active",
-                true
-            )
-            .get()
-            .addOnSuccessListener { result ->
-
-                progress.visibility =
-                    View.GONE
-
-                if (result.isEmpty) {
-
-                    content.addView(
-                        createEmptyText(
-                            "কোনো Care Of পাওয়া যায়নি"
-                        )
-                    )
-
-                    return@addOnSuccessListener
-                }
-
-                val careOfList =
-                    result.documents.sortedBy {
-
-                        (
-                            it.getString("name")
-                                ?: ""
-                        ).lowercase()
-                    }
-
-                for (document in careOfList) {
-
-                    val name =
-                        document.getString(
-                            "name"
-                        ) ?: "Unknown"
-
-                    val address =
-                        document.getString(
-                            "address"
-                        ) ?: ""
-
-                    val card =
-                        createCareOfListCard(
-                            document.id,
-                            name,
-                            address,
-                            document.getString("createdByUid") ?: ""
-                        )
-
-                    card.setOnClickListener {
-
-                        showCareOfDateSelection(
-                            document.id,
-                            name
-                        )
-                    }
-
-                    content.addView(card)
-                }
-            }
-            .addOnFailureListener { error ->
-
-                progress.visibility =
-                    View.GONE
-
-                Toast.makeText(
-                    this,
-                    "Care Of List পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    // =========================================================
-    // CARE OF CARD
-    // =========================================================
-
-    private fun createCareOfListCard(
-        careOfId: String,
-        name: String,
-        address: String,
-        creatorUid: String
-    ): LinearLayout {
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(18),
-                    dp(16),
-                    dp(18),
-                    dp(16)
-                )
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(16)
-                    )
-
-                elevation =
-                    dp(3).toFloat()
-            }
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    "👤 $name"
-
-                textSize = 20f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    primaryColor
-                )
-            }
-
-        card.addView(title)
-
-        if (address.isNotEmpty()) {
-
-            card.addView(
-                createInfoText(
-                    "📍 Address",
-                    address
-                )
-            )
-        }
-
-        val buttonRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.END
-
-                setPadding(
-                    0,
-                    dp(12),
-                    0,
-                    0
-                )
-            }
-
-        val currentUid = auth.currentUser?.uid ?: ""
-        val canEditDelete = currentRole == "admin" || currentUid == creatorUid
-
-        if (canEditDelete) {
-            val editButton = createSmallButton("✏ Edit")
-            editButton.setOnClickListener { showEditCareOfDialog(careOfId) }
-            buttonRow.addView(editButton)
-
-            val deleteButton = createSmallButton("🗑 Delete")
-            deleteButton.setOnClickListener { confirmDeleteCareOf(careOfId, name) }
-            buttonRow.addView(deleteButton)
-        }
-
-        card.addView(buttonRow)
-
-        card.addView(
-            createInfoText(
-                "",
-                "Tap করুন → তারিখ নির্বাচন করে Serial দেখুন"
-            )
-        )
-
-        card.layoutParams =
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-
-                setMargins(
-                    0,
-                    dp(6),
-                    0,
-                    dp(6)
-                )
-            }
-
-        return card
-    }
-
-    // =========================================================
-    // EDIT CARE OF
-    // =========================================================
-
-    private fun showEditCareOfDialog(
-        careOfId: String
-    ) {
-
-        db.collection("careOf")
-            .document(careOfId)
-            .get()
-            .addOnSuccessListener { document ->
-
-                val ownerUid = document.getString("createdByUid") ?: ""
-                if (currentRole != "admin" && ownerUid != (auth.currentUser?.uid ?: "")) {
-                    Toast.makeText(this, "এই Care Of শুধু যিনি যোগ করেছেন তিনি Edit করতে পারবেন", Toast.LENGTH_LONG).show()
-                    return@addOnSuccessListener
-                }
-
-                if (!document.exists()) {
-
-                    Toast.makeText(
-                        this,
-                        "Care Of পাওয়া যায়নি",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    return@addOnSuccessListener
-                }
-
-                val container =
-                    LinearLayout(this).apply {
-
-                        orientation =
-                            LinearLayout.VERTICAL
-
-                        setPadding(
-                            dp(20),
-                            dp(5),
-                            dp(20),
-                            0
-                        )
-                    }
-
-                val name =
-                    createFormInput(
-                        "Care Of Name"
-                    )
-
-                name.setText(
-                    document.getString(
-                        "name"
-                    ) ?: ""
-                )
-
-                val address =
-                    createFormInput(
-                        "Address"
-                    )
-
-                address.setSingleLine(false)
-
-                address.minLines = 3
-
-                address.gravity =
-                    Gravity.TOP
-
-                address.setText(
-                    document.getString(
-                        "address"
-                    ) ?: ""
-                )
-
-                container.addView(
-                    name,
-                    formParams()
-                )
-
-                container.addView(
-                    address,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dp(90)
-                    ).apply {
-                        setMargins(
-                            0,
-                            0,
-                            0,
-                            dp(14)
-                        )
-                    }
-                )
-
-                AlertDialog.Builder(this)
-                    .setTitle(
-                        "✏ Edit Care Of"
-                    )
-                    .setView(container)
-                    .setNegativeButton(
-                        "Cancel",
-                        null
-                    )
-                    .setPositiveButton(
-                        "Save"
-                    ) { _: DialogInterface, _: Int ->
-
-                        val newName =
-                            name.text.toString().trim()
-
-                        val newAddress =
-                            address.text.toString().trim()
-
-                        if (newName.isEmpty()) {
-
-                            Toast.makeText(
-                                this,
-                                "Care Of Name দিন",
-                                Toast.LENGTH_SHORT
-                            ).show()
-
-                            return@setPositiveButton
-                        }
-
-                        db.collection("careOf")
-                            .document(careOfId)
-                            .update(
-                                mapOf(
-                                    "name" to newName,
-                                    "address" to newAddress
-                                )
-                            )
-                            .addOnSuccessListener {
-
-                                Toast.makeText(
-                                    this,
-                                    "Care Of Update হয়েছে",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-
-                                showCareOfList()
-                            }
-                            .addOnFailureListener { error ->
-
-                                Toast.makeText(
-                                    this,
-                                    "Update ব্যর্থ: ${error.message}",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                    }
-                    .show()
-            }
-            .addOnFailureListener { error ->
-
-                Toast.makeText(
-                    this,
-                    "Care Of তথ্য পাওয়া যায়নি: ${error.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-    }
-
-    // =========================================================
-    // DELETE CARE OF
-    // =========================================================
-
-    private fun confirmDeleteCareOf(
-        careOfId: String,
-        careOfName: String
-    ) {
-
-        val currentUid = auth.currentUser?.uid ?: ""
-        if (currentRole != "admin") {
-            db.collection("careOf").document(careOfId).get().addOnSuccessListener { doc ->
-                if ((doc.getString("createdByUid") ?: "") != currentUid) {
-                    Toast.makeText(this, "এই Care Of শুধু যিনি যোগ করেছেন তিনি Delete করতে পারবেন", Toast.LENGTH_LONG).show()
-                    return@addOnSuccessListener
-                }
-                confirmDeleteCareOfAfterCheck(careOfId, careOfName)
-            }
-            return
-        }
-
-        confirmDeleteCareOfAfterCheck(careOfId, careOfName)
-    }
-
-    private fun confirmDeleteCareOfAfterCheck(
-        careOfId: String,
-        careOfName: String
-    ) {
-        AlertDialog.Builder(this)
-            .setTitle(
-                "Care Of Delete"
-            )
-            .setMessage(
-                "আপনি কি \"$careOfName\" Care Of-কে Delete করতে চান?"
-            )
-            .setNegativeButton(
-                "না",
-                null
-            )
-            .setPositiveButton(
-                "হ্যাঁ, Delete"
-            ) { _, _ ->
-
-                db.collection("careOf")
-                    .document(careOfId)
-                    .delete()
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Care Of Delete হয়েছে",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        showCareOfList()
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Delete ব্যর্থ: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .show()
-    }
-
-    // =========================================================
-    // ADD CARE OF
-    // =========================================================
-
-    private fun showAddCareOf() {
-
-        if (auth.currentUser == null) {
-            Toast.makeText(this, "Login প্রয়োজন", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        currentScreen = SCREEN_ADD_CAREOF
-
-        setupSystemBars()
-
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setBackgroundColor(
-                    backgroundColor
-                )
-            }
-
-        root.addView(
-            createInnerTopBar(
-                "Add Care Of"
-            ) {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll =
-            PullToRefreshScrollView(this)
-
-        val content =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(20),
-                    dp(20),
-                    dp(20),
-                    dp(30)
-                )
-            }
-
-        val heading =
-            TextView(this).apply {
-
-                text =
-                    "নতুন Care Of যোগ করুন"
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(5),
-                    dp(5),
-                    dp(5),
-                    dp(20)
-                )
-            }
-
-        content.addView(heading)
-
-        addFormLabel(
-            content,
-            "Care Of নাম *"
-        )
-
-        val name =
-            createFormInput(
-                "Care Of Name"
-            )
-
-        content.addView(
-            name,
-            formParams()
-        )
-
-        addFormLabel(
-            content,
-            "ঠিকানা / Address"
-        )
-
-        val address =
-            createFormInput(
-                "যেমন: ফতুল্লা, নারায়ণগঞ্জ"
-            )
-
-        address.setSingleLine(false)
-
-        address.minLines = 3
-
-        address.gravity =
-            Gravity.TOP
-
-        content.addView(
-            address,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(90)
-            ).apply {
-
-                setMargins(
-                    0,
-                    0,
-                    0,
-                    dp(14)
-                )
-            }
-        )
-
-        val status =
-            createStatusText()
-
-        content.addView(status)
-
-        val save =
-            createPrimaryButton(
-                "💾  SAVE CARE OF"
-            )
-
-        content.addView(
-            save,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            )
-        )
-
-        save.setOnClickListener {
-
-            val careName =
-                name.text.toString().trim()
-
-            val careAddress =
-                address.text.toString().trim()
-
-            if (careName.isEmpty()) {
-
-                name.error =
-                    "Care Of নাম দিন"
-
-                name.requestFocus()
-
-                return@setOnClickListener
-            }
-
-            save.isEnabled = false
-
-            status.text =
-                "Care Of সংরক্ষণ হচ্ছে..."
-
-            findDuplicateCareOf(
-                careName,
-                careAddress,
-                onFound = { existing ->
-
-                    save.isEnabled = true
-
-                    val existingName =
-                        existing.getString("name") ?: careName
-
-                    val existingAddress =
-                        existing.getString("address") ?: careAddress
-
-                    status.text =
-                        "এই Care Of আগে থেকেই আছে"
-
-                    AlertDialog.Builder(this)
-                        .setTitle("Care Of আগে থেকেই আছে")
-                        .setMessage(
-                            if (existingAddress.isBlank()) {
-                                existingName
-                            } else {
-                                "$existingName\n$existingAddress"
-                            }
-                        )
-                        .setPositiveButton("ঠিক আছে", null)
-                        .show()
-                },
-                onNotFound = {
-
-                    saveCareOfWithoutDuplicate(
-                        careName,
-                        careAddress,
-                        onSaved = {
-                            save.isEnabled = true
-                            status.text = "Care Of সফলভাবে যোগ হয়েছে ✓"
-                            Toast.makeText(
-                                this,
-                                "Care Of সফলভাবে যোগ হয়েছে",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            name.text.clear()
-                            address.text.clear()
-                        },
-                        onDuplicate = { existing ->
-                            save.isEnabled = true
-                            status.text = "এই Care Of আগে থেকেই আছে"
-                            val existingName = existing.getString("name") ?: careName
-                            val existingAddress = existing.getString("address") ?: careAddress
-                            AlertDialog.Builder(this)
-                                .setTitle("Care Of আগে থেকেই আছে")
-                                .setMessage(if (existingAddress.isBlank()) existingName else "$existingName\n$existingAddress")
-                                .setPositiveButton("ঠিক আছে", null)
-                                .show()
-                        },
-                        onError = { error ->
-                            save.isEnabled = true
-                            status.text = ""
-                            Toast.makeText(
-                                this,
-                                "Care Of যোগ করা যায়নি: ${error.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    )
-                }
-            )
-        }
-
-        scroll.addView(content)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-
-        setContentView(root)
-    }
-
-    // =========================================================
-    // CARE OF DATE
-    // =========================================================
-
-    private fun showCareOfDateSelection(
-        careOfId: String,
-        careOfName: String
-    ) {
-
-        val calendar =
-            Calendar.getInstance()
-
-        DatePickerDialog(
-            this,
-            { _, year, month, day ->
-
-                val selected =
-                    Calendar.getInstance()
-
-                selected.set(
-                    year,
-                    month,
-                    day
-                )
-
-                val date =
-                    SimpleDateFormat(
-                        "yyyy-MM-dd",
-                        Locale.getDefault()
-                    ).format(
-                        selected.time
-                    )
-
-                showCareOfSerials(
-                    careOfId,
-                    careOfName,
-                    date
-                )
-            },
-            calendar.get(
-                Calendar.YEAR
-            ),
-            calendar.get(
-                Calendar.MONTH
-            ),
-            calendar.get(
-                Calendar.DAY_OF_MONTH
-            )
-        ).apply {
-
-            setTitle(
-                "তারিখ নির্বাচন করুন"
-            )
-
-            show()
-        }
-    }
-
-    // =========================================================
-    // CARE OF SERIAL
-    // =========================================================
-
-    private fun showCareOfSerials(
-        careOfId: String,
-        careOfName: String,
-        date: String
-    ) {
-
-        serialParentScreen =
-            SCREEN_CAREOF_LIST
-
-        showSerialListPage(
-            title =
-                "Care Of: $careOfName",
-            filterField =
-                "careOfId",
-            filterValue =
-                careOfId,
-            date =
-                date
-        )
-    }
-
-    // =========================================================
-    // SERIAL LIST PAGE
-    // =========================================================
-
-    private fun showSerialListPage(
-        title: String,
-        filterField: String,
-        filterValue: String,
-        date: String
-    ) {
-        clearActiveListeners()
-        lastListTitle = title
-        lastListFilterField = filterField
-        lastListFilterValue = filterValue
-        lastListDate = date
-        currentScreen = if (filterField == "doctorId") SCREEN_DOCTOR_SERIAL else SCREEN_CAREOF_SERIAL
-        setupSystemBars()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-        root.addView(createInnerTopBar("Serial List") {
-            if (filterField == "doctorId") showDoctorList() else showCareOfList()
-        })
-
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(30))
-        }
-        content.addView(TextView(this).apply {
-            text = title
-            textSize = 22f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-        })
-        content.addView(TextView(this).apply {
-            text = "📅 তারিখ: ${formatDisplayDate(date)}"
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(primaryColor)
-            setPadding(dp(5), dp(5), dp(5), dp(15))
-        })
-        val progress = ProgressBar(this)
-        content.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(50)).apply { gravity = Gravity.CENTER })
-        val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(listContainer)
-        scroll.addView(content)
-        scroll.onPullToRefresh = { refreshCurrentScreen() }
-        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        setContentView(root)
-
-        activeListeners.add(
-            db.collection("serials")
-                .whereEqualTo(filterField, filterValue)
-                .whereEqualTo("createdDate", date)
-                .addSnapshotListener { result, error ->
-                    progress.visibility = View.GONE
-                    listContainer.removeAllViews()
-                    if (error != null || result == null) {
-                        if (error != null) Toast.makeText(this, "Serial List পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
-                        return@addSnapshotListener
-                    }
-                    val visibleDocuments = result.documents.filterNot {
-                        (it.getString("status") ?: "Waiting") == "Cancelled"
-                    }
-                    if (visibleDocuments.isEmpty()) {
-                        listContainer.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
-                        return@addSnapshotListener
-                    }
-                    visibleDocuments.sortedWith(
-                        compareByDescending<DocumentSnapshot> { it.getBoolean("patientVip") ?: false }
-                            .thenBy { it.getLong("number") ?: 0L }
-                    ).forEach { listContainer.addView(createSerialCard(it)) }
-                }
-        )
-    }
-
-    // =========================================================
-    // SERIAL CARD
-    // =========================================================
-
-    private fun createSerialCard(
-        document: DocumentSnapshot,
-        displayNumber: Long? = null
-    ): LinearLayout {
-
-        val isVip =
-            document.getBoolean(
-                "patientVip"
-            ) ?: false
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(16),
-                    dp(14),
-                    dp(16),
-                    dp(14)
-                )
-
-                background =
-                    roundedCardDrawable(
-                        if (isVip) {
-                            Color.rgb(
-                                255,
-                                248,
-                                225
-                            )
-                        } else {
-                            Color.WHITE
-                        },
-                        dp(15)
-                    )
-
-                elevation =
-                    dp(3).toFloat()
-            }
-
-        val number =
-            displayNumber?.toString()
-                ?: document.getLong("number")
-                    ?.toString()
-                ?: document.getString(
-                    "number"
-                )
-                ?: "-"
-
-        val patient =
-            document.getString(
-                "patient"
-            ) ?: "-"
-
-        val careOf =
-            document.getString(
-                "careOfName"
-            )
-                ?: document.getString(
-                    "careOf"
-                )
-                ?: "-"
-
-        val careOfAddress =
-            document.getString(
-                "careOfAddress"
-            ) ?: ""
-
-        val doctor =
-            document.getString(
-                "doctorName"
-            )
-                ?: document.getString(
-                    "doctor"
-                )
-                ?: "-"
-
-        val status =
-            document.getString(
-                "status"
-            ) ?: "Waiting"
-
-        val description =
-            document.getString(
-                "description"
-            ) ?: ""
-
-        val createdByRole =
-            document.getString(
-                "createdByRole"
-            )
-                ?: "-"
-
-        val createdByName =
-            document.getString(
-                "createdByName"
-            )
-                ?: document.getString(
-                    "createdBy"
-                )
-                ?: "-"
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    if (isVip) {
-                        "⭐ VIP  •  Serial #$number"
-                    } else {
-                        "Serial #$number"
-                    }
-
-                textSize = 21f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    if (isVip) {
-                        Color.rgb(
-                            190,
-                            120,
-                            0
-                        )
-                    } else {
-                        primaryColor
-                    }
-                )
-            }
-
-        card.addView(title)
-
-        card.addView(
-            createInfoText(
-                "👤 Patient",
-                patient
-            )
-        )
-
-        card.addView(
-            createInfoText(
-                "👨‍⚕️ Doctor",
-                doctor
-            )
-        )
-
-        if (careOf != "-") {
-
-            val careText =
-                if (careOfAddress.isBlank()) {
-                    careOf
-                } else {
-                    "$careOf\n$careOfAddress"
-                }
-
-            card.addView(
-                createInfoText(
-                    "👤 Care Of",
-                    careText
-                )
-            )
-        }
-
-        if (description.isNotEmpty()) {
-
-            card.addView(
-                createInfoText(
-                    "📝 বিবরণ",
-                    description
-                )
-            )
-        }
-
-        if (
-            document.getBoolean(
-                "hasAttachment"
-            ) == true
-        ) {
-
-            card.addView(
-                createInfoText(
-                    "📎 Document",
-                    document.getString(
-                        "attachmentName"
-                    ) ?: "সংযুক্ত"
-                )
-            )
-
-            // Everyone who can view the serial can open the attachment.
-            // The app exposes no download, edit, or delete action for it.
-            val openAttachment = createSmallButton("📂 ডকুমেন্ট খুলুন")
-            openAttachment.setOnClickListener {
-                showSerialAttachment(document)
-            }
-            card.addView(openAttachment)
-        }
-
-        card.addView(
-            createInfoText(
-                "✍ Created By",
-                "$createdByName ($createdByRole)"
-            )
-        )
-
-        card.addView(
-            createInfoText(
-                "📌 Status",
-                status
-            )
-        )
-
-        // Show exactly who marked this serial as Completed.
-        // This is displayed only while the current status is Completed.
-        if (status.equals("Completed", true)) {
-            val completedByName =
-                document.getString("completedByName")
-                    ?: document.getString("completedBy")
-                    ?: "-"
-            val completedByRole =
-                document.getString("completedByRole")
-                    ?: ""
-            val completedByText =
-                if (completedByRole.isBlank()) {
-                    completedByName
-                } else {
-                    "$completedByName ($completedByRole)"
-                }
-
-            card.addView(
-                createInfoText(
-                    "✅ Completed By",
-                    completedByText
-                )
-            )
-        }
-
-        val buttonRow =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.END
-
-                setPadding(
-                    0,
-                    dp(10),
-                    0,
-                    0
-                )
-            }
-
-        val currentUid =
-            auth.currentUser?.uid
-                ?: ""
-
-        val creatorUid =
-            document.getString(
-                "createdByUid"
-            ) ?: ""
-
-        val canEditDelete =
-            currentUid == creatorUid ||
-                    currentRole == "admin"
-
-        val vipButton =
-            createSmallButton(
-                if (isVip) "★ VIP" else "☆ VIP"
-            )
-
-        vipButton.setOnClickListener {
-
-            db.collection("serials")
-                .document(document.id)
-                .update("patientVip", !isVip)
-                .addOnSuccessListener {
-                    Toast.makeText(
-                        this,
-                        if (!isVip) "রোগীকে VIP করা হয়েছে" else "VIP বাতিল করা হয়েছে",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    showTotalSerial()
-                }
-                .addOnFailureListener { error ->
-                    Toast.makeText(
-                        this,
-                        "VIP পরিবর্তন করা যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        }
-
-        buttonRow.addView(vipButton)
-
-        // Only Operator/Admin can change a serial status.
-        // Regular Users can edit/delete only their own serials.
-        if (currentRole.equals("operator", true) || currentRole.equals("admin", true)) {
-            val statusButton =
-                createSmallButton(
-                    "📌 $status"
-                )
-
-            when (status) {
-                "Completed" -> {
-                    statusButton.background = roundedCardDrawable(
-                        Color.rgb(46, 125, 50),
-                        dp(10)
-                    )
-                    statusButton.setTextColor(Color.WHITE)
-                }
-                "Waiting" -> {
-                    statusButton.background = roundedCardDrawable(
-                        Color.rgb(198, 40, 40),
-                        dp(10)
-                    )
-                    statusButton.setTextColor(Color.WHITE)
-                }
-                "Present" -> {
-                    statusButton.background = roundedCardDrawable(
-                        Color.rgb(245, 193, 38),
-                        dp(10)
-                    )
-                    statusButton.setTextColor(Color.rgb(60, 50, 0))
-                }
-                else -> {
-                    statusButton.background = roundedCardDrawable(
-                        Color.rgb(117, 117, 117),
-                        dp(10)
-                    )
-                    statusButton.setTextColor(Color.WHITE)
-                }
-            }
-
-            statusButton.setOnClickListener {
-                showStatusDialog(document.id, status)
-            }
-
-            buttonRow.addView(statusButton)
-        }
-
-        if (canEditDelete) {
-
-            val edit =
-                createSmallButton(
-                    "✏ Edit"
-                )
-
-            edit.setOnClickListener {
-
-                showEditSerialDialog(
-                    document
-                )
-            }
-
-            buttonRow.addView(edit)
-
-            val delete =
-                createSmallButton(
-                    "🗑 Delete"
-                )
-
-            delete.setOnClickListener {
-
-                confirmDeleteSerial(
-                    document.id
-                )
-            }
-
-            buttonRow.addView(delete)
-        }
-card.addView(buttonRow)
-
-        card.layoutParams =
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-
-                setMargins(
-                    0,
-                    dp(6),
-                    0,
-                    dp(6)
-                )
-            }
-
-        return card
-    }
-
-    // =========================================================
-    // OPEN SERIAL ATTACHMENT (VIEW ONLY)
-    // =========================================================
-
-    private fun showSerialAttachment(document: DocumentSnapshot) {
-        val base64 = document.getString("attachmentBase64") ?: ""
-        val mime = document.getString("attachmentMimeType") ?: ""
-        val name = document.getString("attachmentName") ?: "Document"
-
-        if (base64.isBlank()) {
-            Toast.makeText(this, "ডকুমেন্টের তথ্য পাওয়া যায়নি", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        try {
-            val bytes = Base64.decode(base64, Base64.DEFAULT)
-
-            if (mime.startsWith("image/")) {
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bitmap == null) {
-                    Toast.makeText(this, "ছবিটি খোলা যায়নি", Toast.LENGTH_LONG).show()
-                    return
-                }
-
-                val image = ImageView(this).apply {
-                    setImageBitmap(bitmap)
-                    adjustViewBounds = true
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
-                }
-
-                AlertDialog.Builder(this)
-                    .setTitle("📎 $name")
-                    .setView(image)
-                    .setPositiveButton("বন্ধ করুন", null)
-                    .show()
+            if (exists) {
+                toast("এই নামটি আগে থেকেই আছে")
                 return
             }
+            val key = if (collection == "doctors") "doctor_$value" else "care_$value"
+            pref.edit().putString(key, value).apply()
+            loadLocalData()
+            toast("সফলভাবে যোগ হয়েছে")
+            onSuccess?.invoke()
+            return
+        }
 
-            if (mime == "application/pdf") {
-                val pdfFile = File(cacheDir, "view_${System.currentTimeMillis()}.pdf")
-                pdfFile.writeBytes(bytes)
+        rootRef.child(collection).get().addOnSuccessListener { snap ->
+            val duplicate = snap.children.any {
+                (it.getValue(String::class.java) ?: "").equals(value, true)
+            }
+            if (duplicate) {
+                toast("এই নামটি আগে থেকেই আছে")
+                return@addOnSuccessListener
+            }
 
-                val descriptor = ParcelFileDescriptor.open(
-                    pdfFile,
-                    ParcelFileDescriptor.MODE_READ_ONLY
-                )
-                val renderer = PdfRenderer(descriptor)
-                val pagesContainer = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(4), dp(4), dp(4), dp(4))
+            val safeKey = value.replace(".", "_").replace("#", "_").replace("$", "_")
+                .replace("[", "_").replace("]", "_").replace("/", "_")
+            rootRef.child(collection).child(safeKey).setValue(value)
+                .addOnSuccessListener {
+                    toast("সফলভাবে যোগ হয়েছে")
+                    onSuccess?.invoke()
                 }
+                .addOnFailureListener { toast("যোগ করা যায়নি") }
+        }.addOnFailureListener { toast("নাম যাচাই করা যায়নি") }
+    }
 
-                if (renderer.pageCount == 0) {
-                    renderer.close()
-                    descriptor.close()
-                    pdfFile.delete()
-                    Toast.makeText(this, "PDF-এ কোনো পেজ নেই", Toast.LENGTH_LONG).show()
-                    return
-                }
+    // =========================================================
+    // SERIAL CARD / STATUS / EDIT / DELETE
+    // =========================================================
+    private fun serialCard(r: SerialRecord, allowActions: Boolean, displayNumber: Int? = null): View {
+        val card = cardLayout()
+        card.setPadding(14, 12, 14, 12)
+        val shownNumber = displayNumber ?: r.number
+        card.addView(label(
+            "সিরিয়াল #$shownNumber${if (displayNumber != null) "  (মূল #${r.number})" else ""}   •   ${statusBangla(r.status)}",
+            18f, statusColor(r.status), true
+        ))
+        card.addView(label("👤 ${r.patient}", 16f, DARK, true))
+        card.addView(label("Care Of: ${if (r.careOf.isEmpty()) "—" else r.careOf}", 13.5f, GRAY))
+        card.addView(label("👨‍⚕️ ডাক্তার: ${r.doctor}", 14f, DARK))
+        card.addView(label("✍ দিয়েছেন: ${r.createdBy} (${r.createdRole})", 13f, TEAL, true))
+        card.addView(label("সময়: ${r.createdAt}", 12f, GRAY))
 
-                for (index in 0 until renderer.pageCount) {
-                    val page = renderer.openPage(index)
-                    val width = dp(320).coerceAtLeast(page.width)
-                    val scale = width.toFloat() / page.width.toFloat()
-                    val height = (page.height * scale).toInt().coerceAtLeast(dp(1))
-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    bitmap.eraseColor(Color.WHITE)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    page.close()
+        if (r.status.equals("Completed", true) && r.completedBy.isNotEmpty()) {
+            card.addView(label("সম্পন্ন করেছেন: ${r.completedBy} • ${r.completedAt}", 12.5f, GREEN, true))
+        }
+        if (r.status.equals("Present", true)) {
+            card.addView(label("উপস্থিত করেছেন: ${r.completedBy.ifEmpty { "Operator" }}", 12.5f,
+                Color.rgb(180, 135, 10), true))
+        }
 
-                    pagesContainer.addView(ImageView(this).apply {
-                        setImageBitmap(bitmap)
-                        adjustViewBounds = true
-                        scaleType = ImageView.ScaleType.FIT_CENTER
-                        setPadding(dp(2), dp(2), dp(2), dp(8))
+        if (allowActions) {
+            val isOperator = currentRole.equals("Operator", true) || currentRole.equals("Admin", true)
+            val isOwner = currentRole.equals("User", true) && r.createdBy.equals(currentUsername, true)
+
+            if (isOperator || isOwner) {
+                card.addView(space(5))
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+                if (isOperator) {
+                    row.addView(smallButton("● ${statusBangla(r.status)}", statusColor(r.status)) {
+                        showStatusChooser(r)
                     })
+                    row.addView(smallButton("✎ এডিট", BLUE) { showEditSerial(r) })
+                    row.addView(smallButton("🗑 ডিলিট", RED) { confirmDelete(r) })
+                } else if (isOwner) {
+                    // User can edit/delete only their own serial. They cannot change status.
+                    row.addView(smallButton("✎ এডিট", BLUE) { showEditSerialAsOwner(r) })
+                    row.addView(smallButton("🗑 ডিলিট", RED) { confirmDeleteAsOwner(r) })
                 }
+                card.addView(row)
+            }
+        }
+        return card
+    }
 
-                renderer.close()
-                descriptor.close()
-                pdfFile.delete()
+    private fun showStatusChooser(r: SerialRecord) {
+        if (!canModifySerials()) {
+            toast("শুধুমাত্র Operator / Admin status পরিবর্তন করতে পারবেন")
+            return
+        }
+        val statuses = arrayOf("Waiting", "Present", "Completed")
+        val labels = arrayOf("অপেক্ষমাণ", "উপস্থিত", "সম্পন্ন")
+        AlertDialog.Builder(this)
+            .setTitle("সিরিয়াল #${r.number} — Status")
+            .setItems(labels) { _, which -> updateStatus(r, statuses[which]) }
+            .show()
+    }
 
-                val scroll = ScrollView(this).apply {
-                    addView(pagesContainer)
-                }
+    private fun showEditSerialAsOwner(r: SerialRecord) {
+        if (!currentRole.equals("User", true) || !r.createdBy.equals(currentUsername, true)) {
+            toast("শুধু নিজের সিরিয়াল এডিট করতে পারবেন")
+            return
+        }
+        showEditSerial(r, ownerOnly = true)
+    }
 
-                AlertDialog.Builder(this)
-                    .setTitle("📎 $name")
-                    .setView(scroll)
-                    .setPositiveButton("বন্ধ করুন", null)
-                    .show()
+    private fun confirmDeleteAsOwner(r: SerialRecord) {
+        if (!currentRole.equals("User", true) || !r.createdBy.equals(currentUsername, true)) {
+            toast("শুধু নিজের সিরিয়াল ডিলিট করতে পারবেন")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("সিরিয়াল Delete")
+            .setMessage("সিরিয়াল #${r.number} মুছে ফেলবেন?")
+            .setNegativeButton("না", null)
+            .setPositiveButton("হ্যাঁ") { _, _ -> deleteSerial(r, ownerOnly = true) }
+            .show()
+    }
+
+    private fun updateStatus(r: SerialRecord, newStatus: String) {
+        if (!canModifySerials()) {
+            toast("শুধুমাত্র Operator / Admin পরিবর্তন করতে পারবেন")
+            return
+        }
+        if (!firebaseAvailable) {
+            updateLocalStatus(r, newStatus)
+            return
+        }
+        val updates = mutableMapOf<String, Any>(
+            "status" to newStatus,
+            "completedBy" to currentUsername,
+            "completedAt" to currentTime24()
+        )
+        if (newStatus == "Waiting") {
+            updates["completedBy"] = ""
+            updates["completedAt"] = ""
+        }
+        rootRef.child("serials").child(r.dateKey).child(r.id).updateChildren(updates)
+            .addOnSuccessListener { toast("সিরিয়াল আপডেট হয়েছে") }
+            .addOnFailureListener { toast("আপডেট করা যায়নি") }
+    }
+
+    private fun showEditSerial(r: SerialRecord, ownerOnly: Boolean = false) {
+        if (ownerOnly) {
+            if (!currentRole.equals("User", true) || !r.createdBy.equals(currentUsername, true)) {
+                toast("শুধু নিজের সিরিয়াল এডিট করতে পারবেন")
                 return
             }
+        } else if (!canModifySerials()) {
+            toast("শুধুমাত্র Operator / Admin এডিট করতে পারবেন")
+            return
+        }
+        val root = verticalContainer()
+        root.addView(label("✎ সিরিয়াল এডিট", 24f, DARK_BLUE, true))
+        root.addView(label("সিরিয়াল #${r.number}", 16f, TEAL, true))
+        val patient = input("রোগীর নাম")
+        patient.setText(r.patient)
+        root.addView(patient)
+        val care = input("Care Of")
+        care.setText(r.careOf)
+        root.addView(care)
+        val doctor = input("ডাক্তার")
+        doctor.setText(r.doctor)
+        root.addView(doctor)
+        root.addView(actionButton("💾   পরিবর্তন সংরক্ষণ", GREEN, 56) {
+            if (patient.text.toString().trim().isEmpty() || doctor.text.toString().trim().isEmpty()) {
+                toast("রোগীর নাম ও ডাক্তার আবশ্যক")
+                return@actionButton
+            }
+            val newPatient = patient.text.toString().trim()
+            val newCare = care.text.toString().trim()
+            val newDoctor = doctor.text.toString().trim()
+            if (!firebaseAvailable) {
+                val raw = listOf(newPatient, newCare, newDoctor, r.status, r.createdBy, r.createdRole, r.createdAt, r.completedBy, r.completedAt).joinToString("||")
+                pref.edit().putString(r.id, raw).apply()
+                loadLocalData()
+                toast("সিরিয়াল এডিট হয়েছে")
+                showTotalSerial()
+                return@actionButton
+            }
+            val updates = mapOf("patient" to newPatient, "careOf" to newCare, "doctor" to newDoctor)
+            rootRef.child("serials").child(r.dateKey).child(r.id).updateChildren(updates)
+                .addOnSuccessListener { toast("সিরিয়াল এডিট হয়েছে"); showTotalSerial() }
+                .addOnFailureListener { toast("এডিট করা যায়নি") }
+        })
+        setContentView(pullToRefresh(root) { })
+    }
 
-            Toast.makeText(this, "এই ফাইলের ধরন অ্যাপে খোলা যাচ্ছে না", Toast.LENGTH_LONG).show()
-        } catch (error: Exception) {
-            Toast.makeText(this, "ডকুমেন্ট খোলা যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
+    private fun updateLocalStatus(r: SerialRecord, newStatus: String) {
+        val parts = listOf(r.patient, r.careOf, r.doctor, newStatus, r.createdBy, r.createdRole, r.createdAt, if (newStatus == "Completed") currentUsername else r.completedBy, if (newStatus == "Completed") currentTime24() else r.completedAt)
+        pref.edit().putString(r.id, parts.joinToString("||")).apply()
+        loadLocalData()
+        toast("সিরিয়াল আপডেট হয়েছে")
+    }
+
+    private fun confirmDelete(r: SerialRecord) {
+        if (!canModifySerials()) {
+            toast("শুধুমাত্র Operator / Admin ডিলিট করতে পারবেন")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("সিরিয়াল মুছে ফেলবেন?")
+            .setMessage("সিরিয়াল #${r.number} স্থায়ীভাবে মুছে যাবে।")
+            .setNegativeButton("না", null)
+            .setPositiveButton("হ্যাঁ, মুছুন") { _, _ -> deleteSerial(r, ownerOnly = false) }
+            .show()
+    }
+
+    private fun deleteSerial(r: SerialRecord, ownerOnly: Boolean) {
+        if (ownerOnly) {
+            if (!currentRole.equals("User", true) || !r.createdBy.equals(currentUsername, true)) {
+                toast("শুধু নিজের সিরিয়াল ডিলিট করতে পারবেন")
+                return
+            }
+        } else if (!canModifySerials()) {
+            toast("শুধুমাত্র Operator / Admin ডিলিট করতে পারবেন")
+            return
+        }
+
+        if (!firebaseAvailable) {
+            pref.edit().remove(r.id).apply()
+            loadLocalData()
+            toast("সিরিয়াল মুছে ফেলা হয়েছে")
+            return
+        }
+        rootRef.child("serials").child(r.dateKey).child(r.id).removeValue()
+            .addOnSuccessListener { toast("সিরিয়াল মুছে ফেলা হয়েছে") }
+            .addOnFailureListener { toast("ডিলিট করা যায়নি") }
+    }
+
+    // =========================================================
+    // REPORTS / PDF
+    // =========================================================
+    private fun showReport() {
+        currentScreen = Screen.REPORT
+        val root = verticalContainer()
+        root.setPadding(12, 16, 12, 20)
+
+        root.addView(label("📄 রিপোর্ট / PDF", 25f, DARK_BLUE, true))
+        root.addView(label("একদিনের রিপোর্ট অথবা নির্বাচিত মাসের ১–৩১ দিনের পূর্ণ রিপোর্ট তৈরি করুন", 13f, GRAY))
+        root.addView(space(10))
+
+        val dateCal = Calendar.getInstance()
+        var selectedDateKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(dateCal.time)
+        var selectedDateText = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(dateCal.time)
+
+        val dateCard = cardLayout()
+        dateCard.addView(label("একদিনের রিপোর্ট", 19f, DARK_BLUE, true))
+        dateCard.addView(space(5))
+        val dateButton = actionButton("📅   তারিখ: $selectedDateText", BLUE, 54) {
+            DatePickerDialog(
+                this,
+                { _, y, m, d ->
+                    dateCal.set(y, m, d)
+                    selectedDateKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(dateCal.time)
+                    selectedDateText = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(dateCal.time)
+                    dateButton.text = "📅   তারিখ: $selectedDateText"
+                },
+                dateCal.get(Calendar.YEAR),
+                dateCal.get(Calendar.MONTH),
+                dateCal.get(Calendar.DAY_OF_MONTH)
+            ).show()
+        }
+        dateCard.addView(dateButton)
+        dateCard.addView(actionButton("⬇   একদিনের PDF ডাউনলোড", GREEN, 56) {
+            fetchReportDays(listOf(selectedDateKey)) { days ->
+                createAndDownloadPdf("MDC_Report_$selectedDateKey.pdf", "মুন ডায়াগনস্টিক সেন্টার — $selectedDateText", days)
+            }
+        })
+        root.addView(dateCard)
+        root.addView(space(10))
+
+        val monthCal = Calendar.getInstance()
+        var monthYear = monthCal.get(Calendar.YEAR)
+        var monthIndex = monthCal.get(Calendar.MONTH)
+        var monthText = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(monthCal.time)
+
+        val monthCard = cardLayout()
+        monthCard.addView(label("পুরো মাসের রিপোর্ট", 19f, DARK_BLUE, true))
+        monthCard.addView(label("নির্বাচিত মাসের ১ তারিখ থেকে মাসের শেষ দিন পর্যন্ত সব দিনের রিপোর্ট এক PDF-এ থাকবে", 12.5f, GRAY))
+        monthCard.addView(space(5))
+        val monthButton = actionButton("🗓   মাস: $monthText", TEAL, 54) {
+            DatePickerDialog(
+                this,
+                { y, m, d ->
+                    monthYear = y
+                    monthIndex = m
+                    monthCal.set(y, m, 1)
+                    monthText = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(monthCal.time)
+                    monthButton.text = "🗓   মাস: $monthText"
+                },
+                monthYear, monthIndex, 1
+            ).show()
+        }
+        monthCard.addView(monthButton)
+        monthCard.addView(actionButton("⬇   পুরো মাসের PDF ডাউনলোড", PURPLE, 58) {
+            val daysInMonth = monthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val keys = (1..daysInMonth).map { day ->
+                String.format(Locale.US, "%04d%02d%02d", monthYear, monthIndex + 1, day)
+            }
+            fetchReportDays(keys) { days ->
+                val fileName = "MDC_Report_${String.format(Locale.US, "%04d-%02d", monthYear, monthIndex + 1)}.pdf"
+                createAndDownloadPdf("$fileName", "মুন ডায়াগনস্টিক সেন্টার — $monthText", days)
+            }
+        })
+        root.addView(monthCard)
+        root.addView(space(10))
+        root.addView(label("নোট: PDF ফোনের Downloads ফোল্ডারে সংরক্ষণ হবে।", 12.5f, GRAY))
+
+        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
+    }
+
+    private data class ReportDay(val dateKey: String, val records: List<SerialRecord>)
+
+    private fun fetchReportDays(dateKeys: List<String>, onDone: (List<ReportDay>) -> Unit) {
+        if (dateKeys.isEmpty()) {
+            onDone(emptyList())
+            return
+        }
+        if (!firebaseAvailable) {
+            val result = dateKeys.map { key -> ReportDay(key, readLocalReportRecords(key)) }
+            onDone(result)
+            return
+        }
+
+        val result = arrayOfNulls<ReportDay>(dateKeys.size)
+        var remaining = dateKeys.size
+        dateKeys.forEachIndexed { index, key ->
+            rootRef.child("serials").child(key).get()
+                .addOnSuccessListener { snapshot ->
+                    val records = snapshot.children.mapNotNull { snapshotToSerialRecord(it, key) }
+                        .sortedBy { it.number }
+                    result[index] = ReportDay(key, records)
+                    remaining--
+                    if (remaining == 0) onDone(result.filterNotNull())
+                }
+                .addOnFailureListener {
+                    toast("$key এর রিপোর্ট পড়া যায়নি")
+                    result[index] = ReportDay(key, emptyList())
+                    remaining--
+                    if (remaining == 0) onDone(result.filterNotNull())
+                }
+        }
+    }
+
+    private fun readLocalReportRecords(dateKey: String): List<SerialRecord> {
+        val result = mutableListOf<SerialRecord>()
+        for (key in pref.all.keys) {
+            if (!key.startsWith(LOCAL_SERIAL_PREFIX + dateKey + "_")) continue
+            val number = key.substringAfterLast("_").toIntOrNull() ?: continue
+            val parts = (pref.getString(key, "") ?: "").split("||")
+            if (parts.size >= 7) {
+                result.add(
+                    SerialRecord(
+                        key, number, dateKey, parts[0], parts[1], parts[2], parts[3],
+                        parts[4], parts[5], parts[6],
+                        parts.getOrElse(7) { "" }, parts.getOrElse(8) { "" }
+                    )
+                )
+            }
+        }
+        return result.sortedBy { it.number }
+    }
+
+    private fun createAndDownloadPdf(fileName: String, title: String, days: List<ReportDay>) {
+        try {
+            val document = PdfDocument()
+            val pageWidth = 595
+            val pageHeight = 842
+            val left = 32f
+            val right = 563f
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
+            val bold = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.BOLD) }
+            var pageNumber = 0
+            var page: PdfDocument.Page? = null
+            var canvas: android.graphics.Canvas? = null
+            var y = 0f
+
+            fun startPage() {
+                pageNumber++
+                page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
+                canvas = page!!.canvas
+                canvas!!.drawColor(Color.WHITE)
+                y = 42f
+            }
+            fun finishPage() {
+                page?.let { document.finishPage(it) }
+                page = null
+                canvas = null
+            }
+            fun ensureSpace(height: Float) {
+                if (page == null) startPage()
+                if (y + height > 790f) {
+                    finishPage()
+                    startPage()
+                }
+            }
+            fun drawText(text: String, size: Float, isBold: Boolean = false, color: Int = Color.BLACK, gap: Float = 5f) {
+                ensureSpace(size + gap + 2f)
+                val p = if (isBold) bold else paint
+                p.textSize = size
+                p.color = color
+                canvas!!.drawText(text, left, y, p)
+                y += size + gap
+            }
+
+            startPage()
+            drawText(title, 18f, true, DARK_BLUE, 8f)
+            drawText("প্রস্তুতকারক: $currentUsername • $currentRole", 10f, false, GRAY, 12f)
+
+            if (days.isEmpty()) {
+                drawText("কোনো রিপোর্ট ডাটা পাওয়া যায়নি।", 13f, false, GRAY)
+            }
+
+            days.forEach { day ->
+                val displayDate = formatReportDate(day.dateKey)
+                ensureSpace(45f)
+                drawText("তারিখ: $displayDate", 14f, true, TEAL, 5f)
+                val total = day.records.size
+                val waiting = day.records.count { it.status.equals("Waiting", true) }
+                val present = day.records.count { it.status.equals("Present", true) }
+                val completed = day.records.count { it.status.equals("Completed", true) }
+                drawText("মোট: $total • অপেক্ষমাণ: $waiting • উপস্থিত: $present • সম্পন্ন: $completed", 9.5f, false, DARK, 7f)
+
+                if (day.records.isEmpty()) {
+                    drawText("কোনো সিরিয়াল নেই", 10f, false, GRAY, 7f)
+                } else {
+                    day.records.sortedBy { it.number }.forEach { r ->
+                        ensureSpace(48f)
+                        val line = "#${r.number}  ${r.patient}  |  ${r.doctor}"
+                        drawText(line, 9.5f, true, DARK, 3f)
+                        drawText("Care Of: ${if (r.careOf.isEmpty()) "—" else r.careOf}  |  ${statusBangla(r.status)}  |  ${r.createdBy}", 8.5f, false, GRAY, 3f)
+                    }
+                }
+                y += 6f
+            }
+
+            if (page != null) finishPage()
+            val bytesFile = File(cacheDir, fileName)
+            FileOutputStream(bytesFile).use { document.writeTo(it) }
+            document.close()
+            savePdfToDownloads(bytesFile, fileName)
+        } catch (e: Exception) {
+            toast("PDF তৈরি করা যায়নি: ${e.message ?: "অজানা সমস্যা"}")
+        }
+    }
+
+    private fun formatReportDate(dateKey: String): String = try {
+        val d = SimpleDateFormat("yyyyMMdd", Locale.US).parse(dateKey)
+        SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(d ?: Date())
+    } catch (_: Exception) { dateKey }
+
+    private fun savePdfToDownloads(file: java.io.File, fileName: String) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Moon Diagnostic Center")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri == null) {
+                    toast("PDF Downloads-এ সংরক্ষণ করা যায়নি")
+                    return
+                }
+                contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                toast("PDF Downloads/Moon Diagnostic Center-এ সংরক্ষণ হয়েছে")
+            } else {
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }
+                val target = File(dir, fileName)
+                file.copyTo(target, overwrite = true)
+                toast("PDF Downloads ফোল্ডারে সংরক্ষণ হয়েছে")
+            }
+        } catch (e: Exception) {
+            toast("PDF সংরক্ষণ করা যায়নি: ${e.message ?: "অজানা সমস্যা"}")
         }
     }
 
     // =========================================================
-    // EDIT SERIAL
+    // ADMIN PANEL / USERS
     // =========================================================
-
-    private fun showEditSerialDialog(
-        document: DocumentSnapshot
-    ) {
-
-        val uid = auth.currentUser?.uid ?: ""
-        val owner = document.getString("createdByUid") ?: ""
-        if (currentRole != "admin" && uid != owner) {
-            Toast.makeText(this, "এই Serial শুধু যিনি দিয়েছেন তিনি Edit করতে পারবেন", Toast.LENGTH_LONG).show()
+    private fun showAdminPanel() {
+        currentScreen = Screen.ADMIN
+        if (!currentRole.equals("Admin", true)) {
+            toast("শুধুমাত্র Admin এই পেজ ব্যবহার করতে পারবেন")
             return
         }
 
-        val container =
-            LinearLayout(this).apply {
+        val root = verticalContainer()
+        root.addView(label("👑 Admin Control Panel", 24f, DARK_BLUE, true))
+        root.addView(label("User এবং Operator পরিচালনা করুন", 13f, GRAY))
+        root.addView(space(10))
 
-                orientation =
-                    LinearLayout.VERTICAL
+        val username = input("নতুন Username")
+        val password = input("নতুন Password", true)
+        val roleSpinner = Spinner(this)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, arrayOf("Operator", "User"))
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        roleSpinner.adapter = adapter
 
-                setPadding(
-                    dp(20),
-                    dp(5),
-                    dp(20),
-                    0
+        root.addView(username)
+        root.addView(password)
+        root.addView(roleSpinner, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 54
+        ).apply { setMargins(8, 5, 8, 5) })
+
+        root.addView(actionButton("＋   নতুন User / Operator তৈরি করুন", TEAL, 56) {
+            createUser(
+                username.text.toString().trim(),
+                password.text.toString(),
+                roleSpinner.selectedItem.toString()
+            )
+        })
+
+        root.addView(space(14))
+        root.addView(label("বর্তমান User / Operator", 20f, DARK_BLUE, true))
+        root.addView(label("Inactive করলেও User এখানেই থাকবে; পরে Active করা যাবে।", 12.5f, GRAY))
+        loadUsers(root)
+
+        setContentView(pullToRefresh(root) { showAdminPanel() })
+    }
+
+    private fun createUser(username: String, password: String, role: String) {
+        if (username.isEmpty() || password.length < 4) {
+            toast("Username দিন এবং Password কমপক্ষে ৪ অক্ষরের দিন")
+            return
+        }
+        if (username.equals("admin", true)) {
+            toast("admin নামটি সংরক্ষিত")
+            return
+        }
+
+        if (firebaseAvailable) {
+            rootRef.child("users").child(username).get().addOnSuccessListener { snap ->
+                if (snap.exists()) {
+                    toast("এই Username আগে থেকেই আছে")
+                    return@addOnSuccessListener
+                }
+                val data = mapOf(
+                    "username" to username,
+                    "passwordHash" to hashPassword(password),
+                    "role" to role,
+                    "active" to true
                 )
+                rootRef.child("users").child(username).setValue(data)
+                    .addOnSuccessListener {
+                        toast("$role সফলভাবে তৈরি হয়েছে")
+                        showAdminPanel()
+                    }
+                    .addOnFailureListener { toast("User তৈরি করা যায়নি") }
             }
-
-        val patientInput =
-            createFormInput(
-                "Patient Name"
-            )
-
-        patientInput.setText(
-            document.getString(
-                "patient"
-            ) ?: ""
-        )
-
-        val descriptionInput =
-            createFormInput(
-                "Description"
-            )
-
-        descriptionInput.setSingleLine(false)
-        descriptionInput.minLines = 4
-        descriptionInput.gravity = Gravity.TOP
-
-        descriptionInput.setText(
-            document.getString(
-                "description"
-            ) ?: ""
-        )
-
-        val vipCheck =
-            CheckBox(this).apply {
-
-                text =
-                    "⭐ VIP Patient"
-
-                textSize = 17f
-
-                isChecked =
-                    document.getBoolean(
-                        "patientVip"
-                    ) ?: false
+        } else {
+            if (pref.contains("user_$username")) {
+                toast("এই Username আগে থেকেই আছে")
+                return
             }
+            pref.edit()
+                .putString("user_$username", username)
+                .putString("pass_$username", hashPassword(password))
+                .putString("role_$username", role)
+                .putBoolean("active_$username", true)
+                .apply()
+            toast("$role সফলভাবে তৈরি হয়েছে")
+            showAdminPanel()
+        }
+    }
 
-        container.addView(
-            patientInput,
-            formParams()
-        )
+    private fun loadUsers(root: LinearLayout) {
+        if (firebaseAvailable) {
+            rootRef.child("users").addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    for (child in snapshot.children) {
+                        val username = child.key ?: continue
+                        if (username.equals("admin", true)) continue
 
-        container.addView(
-            vipCheck,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(55)
-            )
-        )
+                        val role = child.child("role").getValue(String::class.java) ?: "User"
+                        val active = child.child("active").getValue(Boolean::class.java) ?: false
 
-        container.addView(
-            descriptionInput,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(110)
-            )
-        )
+                        val card = cardLayout()
+                        card.addView(label(
+                            "$username\nRole: $role\n${if (active) "Active" else "Inactive"}",
+                            15f, DARK, true
+                        ))
+
+                        val row1 = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                        }
+                        row1.addView(smallButton("✎ Edit", BLUE) {
+                            showEditUserDialog(username, role, active)
+                        })
+                        row1.addView(smallButton("🔑 Password", PURPLE) {
+                            showResetPasswordDialog(username)
+                        })
+                        card.addView(row1)
+
+                        val row2 = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                        }
+                        row2.addView(smallButton(
+                            if (active) "⛔ Deactivate" else "✅ Activate",
+                            if (active) RED else GREEN
+                        ) {
+                            setUserActive(username, !active)
+                        })
+                        row2.addView(smallButton("🗑 Delete", RED) {
+                            confirmDeleteUser(username)
+                        })
+                        card.addView(row2)
+                        root.addView(card)
+                    }
+
+                    if (!snapshot.children.any { !it.key.equals("admin", true) }) {
+                        root.addView(label("এখনও কোনো User / Operator তৈরি করা হয়নি", 14f, GRAY))
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    toast("User list পড়া যায়নি")
+                }
+            })
+            return
+        }
+
+        var count = 0
+        for (key in pref.all.keys.sorted()) {
+            if (!key.startsWith("user_")) continue
+            val username = pref.getString(key, "") ?: ""
+            if (username.isEmpty() || username.equals("admin", true)) continue
+
+            val role = pref.getString("role_$username", "User") ?: "User"
+            val active = pref.getBoolean("active_$username", true)
+
+            val card = cardLayout()
+            card.addView(label(
+                "$username\nRole: $role\n${if (active) "Active" else "Inactive"}",
+                15f, DARK, true
+            ))
+            val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row1.addView(smallButton("✎ Edit", BLUE) {
+                showEditUserDialog(username, role, active)
+            })
+            row1.addView(smallButton("🔑 Password", PURPLE) {
+                showResetPasswordDialog(username)
+            })
+            card.addView(row1)
+
+            val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row2.addView(smallButton(
+                if (active) "⛔ Deactivate" else "✅ Activate",
+                if (active) RED else GREEN
+            ) { setUserActive(username, !active) })
+            row2.addView(smallButton("🗑 Delete", RED) { confirmDeleteUser(username) })
+            card.addView(row2)
+            root.addView(card)
+            count++
+        }
+        if (count == 0) root.addView(label("এখনও কোনো User / Operator তৈরি করা হয়নি", 14f, GRAY))
+    }
+
+    private fun showEditUserDialog(username: String, currentRole: String, active: Boolean) {
+        val box = verticalContainer()
+        val newUsername = input("Username")
+        newUsername.setText(username)
+        val roleSpinner = Spinner(this)
+        val roles = arrayOf("Operator", "User")
+        roleSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, roles)
+        roleSpinner.setSelection(roles.indexOfFirst { it.equals(currentRole, true) }.coerceAtLeast(0))
+        box.addView(newUsername)
+        box.addView(roleSpinner, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 54
+        ).apply { setMargins(6, 5, 6, 5) })
 
         AlertDialog.Builder(this)
-            .setTitle(
-                "Edit Serial"
-            )
-            .setView(container)
-            .setNegativeButton(
-                "Cancel",
-                null
-            )
-            .setPositiveButton(
-                "Save"
-            ) { _: DialogInterface, _: Int ->
-
-                val newPatient =
-                    patientInput.text.toString().trim()
-
-                val newDescription =
-                    descriptionInput.text.toString().trim()
-
-                if (
-                    newPatient.isEmpty()
-                ) {
-
-                    Toast.makeText(
-                        this,
-                        "Patient Name দিন",
-                        Toast.LENGTH_SHORT
-                    ).show()
-
+            .setTitle("User Edit")
+            .setView(box)
+            .setNegativeButton("বাতিল", null)
+            .setPositiveButton("সংরক্ষণ") { _, _ ->
+                val target = newUsername.text.toString().trim()
+                if (target.isEmpty()) {
+                    toast("Username খালি রাখা যাবে না")
                     return@setPositiveButton
                 }
-
-                db.collection("serials")
-                    .document(document.id)
-                    .update(
-                        mapOf(
-                            "patient" to newPatient,
-                            "description" to newDescription,
-                            "patientVip" to
-                                    vipCheck.isChecked
-                        )
-                    )
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Serial আপডেট হয়েছে",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Update ব্যর্থ: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                if (target.equals("admin", true)) {
+                    toast("admin নামটি ব্যবহার করা যাবে না")
+                    return@setPositiveButton
+                }
+                updateUserProfile(username, target, roleSpinner.selectedItem.toString(), active)
             }
             .show()
     }
 
-    // =========================================================
-    // DELETE SERIAL
-    // =========================================================
-
-    private fun confirmDeleteSerial(
-        documentId: String
-    ) {
-
-        val uid = auth.currentUser?.uid ?: ""
-        db.collection("serials").document(documentId).get()
-            .addOnSuccessListener { doc ->
-                val owner = doc.getString("createdByUid") ?: ""
-                if (currentRole != "admin" && uid != owner) {
-                    Toast.makeText(this, "এই Serial শুধু যিনি দিয়েছেন তিনি Delete করতে পারবেন", Toast.LENGTH_LONG).show()
-                    return@addOnSuccessListener
-                }
-                showDeleteSerialConfirmation(documentId)
-            }
-            .addOnFailureListener { e -> Toast.makeText(this, "Serial যাচাই করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
-    }
-
-    private fun showDeleteSerialConfirmation(
-        documentId: String
-    ) {
-
-        AlertDialog.Builder(this)
-            .setTitle(
-                "Serial Delete"
-            )
-            .setMessage(
-                "আপনি কি এই Serial টি Delete করতে চান?"
-            )
-            .setNegativeButton(
-                "না",
-                null
-            )
-            .setPositiveButton(
-                "হ্যাঁ, Delete"
-            ) { _, _ ->
-
-                db.collection("serials")
-                    .document(documentId)
-                    .delete()
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Serial Delete হয়েছে",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Delete ব্যর্থ: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .show()
-    }
-
-    // =========================================================
-    // STATUS
-    // =========================================================
-
-    private fun showStatusDialog(
-        documentId: String,
-        currentStatus: String
-    ) {
-
-        val statuses =
-            arrayOf(
-                "Waiting",
-                "Present",
-                "Completed",
-                "Cancelled"
-            )
-
-        AlertDialog.Builder(this)
-            .setTitle(
-                "Serial Status"
-            )
-            .setSingleChoiceItems(
-                statuses,
-                statuses.indexOf(
-                    currentStatus
-                ).coerceAtLeast(0)
-            ) { dialog, which ->
-
-                val selected =
-                    statuses[which]
-
-                val currentUser = auth.currentUser
-                if (currentUser == null) {
-                    Toast.makeText(this, "Login প্রয়োজন", Toast.LENGTH_SHORT).show()
-                    dialog.dismiss()
-                    return@setSingleChoiceItems
-                }
-
-                val updateData = mutableMapOf<String, Any>(
-                    "status" to selected,
-                    "statusChangedByUid" to currentUser.uid,
-                    "statusChangedByName" to currentUserDisplayName,
-                    "statusChangedByRole" to currentRole,
-                    "statusChangedAt" to FieldValue.serverTimestamp()
-                )
-
-                // Keep the existing completion audit as well.
-                if (selected.equals("Completed", true)) {
-                    updateData["completedByUid"] = currentUser.uid
-                    updateData["completedByName"] = currentUserDisplayName
-                    updateData["completedByRole"] = currentRole
-                    updateData["completedAt"] = FieldValue.serverTimestamp()
-                }
-
-                db.collection("serials")
-                    .document(documentId)
-                    .update(updateData)
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Status: $selected",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        dialog.dismiss()
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Status পরিবর্তন করা যায়নি: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-            }
-            .setNegativeButton(
-                "Cancel",
-                null
-            )
-            .show()
-    }
-
-    // =========================================================
-    // TOTAL SERIAL MANAGEMENT
-    // =========================================================
-
-    private fun showSerialSearch() {
-
-        selectedSerialDate = SimpleDateFormat(
-            "yyyy-MM-dd",
-            Locale.getDefault()
-        ).format(Calendar.getInstance().time)
-
-        currentScreen = SCREEN_TOTAL_SERIAL
-        setupSystemBars()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-
-        root.addView(
-            createInnerTopBar("Total Serial") {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(30))
-        }
-
-        val heading = TextView(this).apply {
-            text = "📋 Total Serial Management"
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-        }
-        content.addView(heading)
-
-        val summary = TextView(this).apply {
-            text = "Serial লোড হচ্ছে..."
-            textSize = 16f
-            setTextColor(primaryColor)
-            setPadding(0, dp(6), 0, dp(10))
-        }
-        content.addView(summary)
-
-        // ---------------------------------------------------------
-        // SEARCH
-        // ---------------------------------------------------------
-        val searchInput = createFormInput("রোগী / Serial / Doctor / Care Of খুঁজুন")
-        searchInput.inputType = InputType.TYPE_CLASS_TEXT
-        content.addView(searchInput, formParams())
-
-        // ---------------------------------------------------------
-        // DATE FILTER
-        // ---------------------------------------------------------
-        val dateRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val dateButton = createPrimaryButton("📅 তারিখ নির্বাচন")
-        val allDateCheck = CheckBox(this).apply {
-            text = "সব তারিখ"
-            textSize = 16f
-            setTextColor(darkText)
-        }
-
-        dateRow.addView(
-            dateButton,
-            LinearLayout.LayoutParams(0, dp(54), 1f).apply {
-                setMargins(0, dp(4), dp(6), dp(4))
-            }
-        )
-        dateRow.addView(
-            allDateCheck,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(54)
-            )
-        )
-        content.addView(dateRow)
-
-        val selectedDateLabel = TextView(this).apply {
-            text = "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            textSize = 15f
-            setTextColor(darkText)
-            setPadding(dp(4), 0, 0, dp(8))
-        }
-        content.addView(selectedDateLabel)
-
-        // ---------------------------------------------------------
-        // STATUS FILTER
-        // ---------------------------------------------------------
-        val statusSpinner = Spinner(this)
-        val statusOptions = arrayOf(
-            "সব Status",
-            "Waiting",
-            "Present",
-            "Completed",
-            "Cancelled"
-        )
-        statusSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            statusOptions
-        )
-        content.addView(
-            statusSpinner,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
-            ).apply {
-                setMargins(0, 0, 0, dp(8))
-            }
-        )
-
-        val listContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        content.addView(listContainer)
-
-        val progress = ProgressBar(this)
-        content.addView(
-            progress,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(50)
-            ).apply { gravity = Gravity.CENTER }
-        )
-
-        scroll.addView(content)
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        )
-        setContentView(root)
-
-        var allDocuments: List<DocumentSnapshot> = emptyList()
-
-        fun render() {
-            listContainer.removeAllViews()
-
-            val query = searchInput.text.toString().trim().lowercase(Locale.getDefault())
-            val statusFilter = statusOptions[statusSpinner.selectedItemPosition]
-            val useAllDates = allDateCheck.isChecked
-
-            val filtered = allDocuments.filter { doc ->
-                val date = doc.getString("createdDate") ?: ""
-                val patient = doc.getString("patient") ?: ""
-                val number = (doc.getLong("number")?.toString()
-                    ?: doc.getString("number") ?: "")
-                val doctor = doc.getString("doctorName")
-                    ?: doc.getString("doctor") ?: ""
-                val care = doc.getString("careOfName")
-                    ?: doc.getString("careOf") ?: ""
-                val careAddress = doc.getString("careOfAddress") ?: ""
-                val status = doc.getString("status") ?: "Waiting"
-
-                val dateMatch = useAllDates || date == selectedSerialDate
-                val statusMatch = statusFilter == "সব Status" || status == statusFilter
-                val searchMatch = query.isEmpty() || listOf(
-                    patient,
-                    number,
-                    doctor,
-                    care,
-                    careAddress,
-                    status
-                ).any { it.lowercase(Locale.getDefault()).contains(query) }
-
-                dateMatch && statusMatch && searchMatch
-            }.sortedWith(
-                compareByDescending<DocumentSnapshot> {
-                    it.getBoolean("patientVip") ?: false
-                }.thenByDescending {
-                    it.getString("createdDate") ?: ""
-                }.thenBy {
-                    it.getLong("number") ?: 0L
-                }
-            )
-
-            val vipCount = filtered.count {
-                it.getBoolean("patientVip") ?: false
-            }
-            val waitingCount = filtered.count {
-                (it.getString("status") ?: "Waiting") == "Waiting"
-            }
-            val presentCount = filtered.count {
-                (it.getString("status") ?: "Waiting") == "Present"
-            }
-            val completedCount = filtered.count {
-                (it.getString("status") ?: "Waiting") == "Completed"
-            }
-            val cancelledCount = filtered.count {
-                (it.getString("status") ?: "Waiting") == "Cancelled"
-            }
-
-            summary.text =
-                "মোট: ${filtered.size}   ⭐ VIP: $vipCount   ⏳ $waitingCount   🟡 $presentCount   ✅ $completedCount   ❌ $cancelledCount"
-
-            if (filtered.isEmpty()) {
-                listContainer.addView(
-                    createEmptyText("এই Filter অনুযায়ী কোনো Serial পাওয়া যায়নি")
-                )
+    private fun updateUserProfile(oldUsername: String, newUsername: String, newRole: String, active: Boolean) {
+        if (!firebaseAvailable) {
+            if (!oldUsername.equals(newUsername, true) && pref.contains("user_$newUsername")) {
+                toast("নতুন Username আগে থেকেই আছে")
                 return
             }
-
-            if (useAllDates) {
-                filtered.forEach { document ->
-                    listContainer.addView(createSerialCard(document))
-                }
-            } else {
-                filtered.forEachIndexed { index, document ->
-                    listContainer.addView(
-                        createSerialCard(
-                            document,
-                            displayNumber = (index + 1).toLong()
-                        )
-                    )
-                }
-            }
-        }
-
-        fun loadSerials() {
-            progress.visibility = View.VISIBLE
-            listContainer.removeAllViews()
-            summary.text = "Serial লোড হচ্ছে..."
-
-            db.collection("serials")
-                .get()
-                .addOnSuccessListener { result ->
-                    allDocuments = result.documents.filterNot {
-                        (it.getString("status") ?: "Waiting") == "Cancelled"
-                    }
-                    progress.visibility = View.GONE
-                    render()
-                }
-                .addOnFailureListener { error ->
-                    progress.visibility = View.GONE
-                    summary.text = "Serial লোড করা যায়নি"
-                    Toast.makeText(
-                        this,
-                        "Total Serial পাওয়া যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        }
-
-        dateButton.setOnClickListener {
-            showAddSerialDatePicker {
-                selectedDateLabel.text =
-                    "তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-                if (!allDateCheck.isChecked) {
-                    render()
-                }
-            }
-        }
-
-        allDateCheck.setOnCheckedChangeListener { _, checked ->
-            selectedDateLabel.visibility = if (checked) View.GONE else View.VISIBLE
-            render()
-        }
-
-        statusSpinner.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: AdapterView<*>?) {}
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
-                ) {
-                    if (allDocuments.isNotEmpty()) render()
-                }
-            }
-
-        searchInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(
-                s: CharSequence?,
-                start: Int,
-                count: Int,
-                after: Int
-            ) {}
-
-            override fun onTextChanged(
-                s: CharSequence?,
-                start: Int,
-                before: Int,
-                count: Int
-            ) {
-                if (allDocuments.isNotEmpty()) render()
-            }
-
-            override fun afterTextChanged(s: Editable?) {}
-        })
-
-        loadSerials()
-    }
-
-    
-    // =========================================================
-    // REPORTS
-    // =========================================================
-
-    private fun showReports() {
-
-        clearActiveListeners()
-        currentScreen = SCREEN_REPORTS
-        setupSystemBars()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-
-        root.addView(
-            createInnerTopBar("Reports") {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(30))
-        }
-
-        content.addView(TextView(this).apply {
-            text = "📊 Reports"
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(0, 0, 0, dp(10))
-        })
-
-        val dateRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val previousDate = createSmallButton("‹ পূর্ববর্তী")
-        val dateButton = createPrimaryButton(
-            "📅 ${formatDisplayDate(selectedSerialDate)}"
-        )
-        val nextDate = createSmallButton("পরবর্তী ›")
-
-        dateRow.addView(previousDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
-            setMargins(0, dp(4), dp(4), dp(6))
-        })
-        dateRow.addView(dateButton, LinearLayout.LayoutParams(0, dp(54), 1.45f).apply {
-            setMargins(dp(4), dp(4), dp(4), dp(6))
-        })
-        dateRow.addView(nextDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
-            setMargins(dp(4), dp(4), 0, dp(6))
-        })
-        content.addView(dateRow)
-
-        val dateInfo = TextView(this).apply {
-            text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(primaryColor)
-            setPadding(dp(4), dp(4), dp(4), dp(8))
-        }
-        content.addView(dateInfo)
-
-        val summary = TextView(this).apply {
-            text = "রিপোর্ট লোড হচ্ছে..."
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(dp(4), dp(4), dp(4), dp(10))
-        }
-        content.addView(summary)
-
-        val reportContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        content.addView(reportContent)
-
-        val pdfButton = createPrimaryButton("📄 PDF Download / Save")
-        pdfButton.isEnabled = false
-        content.addView(pdfButton, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(56)
-        ).apply { setMargins(0, dp(14), 0, dp(8)) })
-
-        scroll.addView(content)
-        scroll.onPullToRefresh = { refreshCurrentScreen() }
-        root.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0,
-            1f
-        ))
-        setContentView(root)
-
-        var reportDocuments: List<DocumentSnapshot> = emptyList()
-
-        fun sortSerials(documents: List<DocumentSnapshot>): List<DocumentSnapshot> =
-            documents.sortedWith(
-                compareBy<DocumentSnapshot> { it.getLong("number") ?: 0L }
-            )
-
-        fun renderReport() {
-            val selectedDateDocs = reportDocuments.filter {
-                (it.getString("createdDate") ?: "") == selectedSerialDate
-            }
-
-            val completed = selectedDateDocs.filter {
-                (it.getString("status") ?: "Waiting").equals("Completed", true)
-            }
-            val incomplete = selectedDateDocs.filter {
-                !(it.getString("status") ?: "Waiting").equals("Completed", true)
-            }
-
-            val doctorGroups = completed
-                .groupBy {
-                    it.getString("doctorName")?.trim()
-                        ?.takeIf { name -> name.isNotEmpty() }
-                        ?: it.getString("doctor")?.trim()
-                            ?.takeIf { name -> name.isNotEmpty() }
-                        ?: "Doctor not specified"
-                }
-                .toSortedMap(String.CASE_INSENSITIVE_ORDER)
-
-            summary.text = buildString {
-                append("আজকের মোট সিরিয়াল = ${selectedDateDocs.size} টি\n")
-                append("সম্পন্ন সিরিয়াল = ${completed.size} টি\n")
-                append("অসম্পন্ন সিরিয়াল = ${incomplete.size} টি\n")
-                append("ডাক্তারের রিপোর্ট = শুধু সম্পন্ন সিরিয়াল")
-            }
-
-            reportContent.removeAllViews()
-
-            if (selectedDateDocs.isEmpty()) {
-                reportContent.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
-            } else if (completed.isEmpty()) {
-                reportContent.addView(createEmptyText("এই তারিখে কোনো সম্পন্ন Serial নেই। Doctor-wise report দেখানোর মতো কোনো Completed Serial নেই।"))
-            } else {
-                reportContent.addView(TextView(this).apply {
-                    text = "👨‍⚕️ Doctor-wise Completed Serial"
-                    textSize = 20f
-                    typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(darkText)
-                    setPadding(0, dp(8), 0, dp(8))
-                })
-
-                doctorGroups.forEach { (doctorName, documents) ->
-                    val doctorTitle = TextView(this).apply {
-                        text = "$doctorName = ${documents.size} টি"
-                        textSize = 18f
-                        typeface = Typeface.DEFAULT_BOLD
-                        setTextColor(primaryColor)
-                        setPadding(dp(6), dp(12), dp(6), dp(8))
-                    }
-                    reportContent.addView(doctorTitle)
-
-                    val table = LinearLayout(this).apply {
-                        orientation = LinearLayout.VERTICAL
-                        background = roundedCardDrawable(Color.WHITE, dp(10))
-                        setPadding(dp(8), dp(6), dp(8), dp(6))
-                        elevation = dp(2).toFloat()
-                    }
-
-                    fun addRow(
-                        serial: String,
-                        patient: String,
-                        careOf: String,
-                        givenBy: String,
-                        header: Boolean = false
-                    ) {
-                        val row = LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            setPadding(dp(4), dp(7), dp(4), dp(7))
-                            if (header) setBackgroundColor(Color.rgb(235, 242, 250))
-                        }
-
-                        fun cell(text: String, weight: Float): TextView = TextView(this).apply {
-                            this.text = text
-                            textSize = if (header) 13f else 14f
-                            typeface = if (header) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                            setTextColor(darkText)
-                            setPadding(dp(4), dp(2), dp(4), dp(2))
-                        }
-
-                        row.addView(cell(serial, 0.65f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.65f))
-                        row.addView(cell(patient, 1.25f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.25f))
-                        row.addView(cell(careOf, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
-                        row.addView(cell(givenBy, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
-                        table.addView(row)
-                    }
-
-                    addRow("Serial", "Patient", "Care Of", "Given By", true)
-
-                    sortSerials(documents).forEach { document ->
-                        val number = document.getLong("number")?.toString()
-                            ?: document.getString("number") ?: "-"
-                        val patient = document.getString("patient") ?: "-"
-                        val careOf = document.getString("careOfName")
-                            ?: document.getString("careOf") ?: "-"
-                        val givenBy = document.getString("createdByName")?.trim()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: document.getString("createdByUid")
-                            ?: "-"
-                        val role = document.getString("createdByRole")?.trim()
-                            ?.takeIf { it.isNotEmpty() }
-                        val givenByText = if (role != null) "$givenBy ($role)" else givenBy
-                        addRow(number, patient, careOf, givenByText)
-                    }
-
-                    reportContent.addView(table, LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { setMargins(0, 0, 0, dp(12)) })
-                }
-            }
-
-            pdfButton.isEnabled = selectedDateDocs.isNotEmpty()
-            pdfButton.setOnClickListener {
-                saveReportAsPdf(selectedSerialDate, selectedDateDocs)
-            }
-        }
-
-        fun moveReportDate(days: Int) {
-            val calendar = Calendar.getInstance()
-            try {
-                val parser = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                calendar.time = parser.parse(selectedSerialDate)
-                    ?: Calendar.getInstance().time
-            } catch (_: Exception) {
-            }
-            calendar.add(Calendar.DAY_OF_MONTH, days)
-            selectedSerialDate = SimpleDateFormat(
-                "yyyy-MM-dd",
-                Locale.getDefault()
-            ).format(calendar.time)
-            dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
-            dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            renderReport()
-        }
-
-        previousDate.setOnClickListener { moveReportDate(-1) }
-        nextDate.setOnClickListener { moveReportDate(1) }
-        dateButton.setOnClickListener {
-            showAddSerialDatePicker {
-                dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
-                dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-                renderReport()
-            }
-        }
-
-        activeListeners.add(
-            db.collection("serials").addSnapshotListener { result, error ->
-                if (error != null || result == null) {
-                    summary.text = "Report লোড করা যায়নি"
-                    reportContent.removeAllViews()
-                    reportContent.addView(createEmptyText("Report পাওয়া যায়নি: ${error?.message ?: "Unknown error"}"))
-                    pdfButton.isEnabled = false
-                    return@addSnapshotListener
-                }
-                reportDocuments = result.documents
-                renderReport()
-            }
-        )
-    }
-
-    // =========================================================
-    // SAVE REPORT AS PDF
-    // =========================================================
-
-    private fun saveReportAsPdf(
-        date: String,
-        documents: List<DocumentSnapshot>
-    ) {
-        if (documents.isEmpty()) {
-            Toast.makeText(
-                this,
-                "এই তারিখে PDF তৈরি করার মতো কোনো Serial নেই",
-                Toast.LENGTH_LONG
-            ).show()
+            val oldPass = pref.getString("pass_$oldUsername", "") ?: ""
+            pref.edit()
+                .remove("user_$oldUsername").remove("pass_$oldUsername")
+                .remove("role_$oldUsername").remove("active_$oldUsername")
+                .putString("user_$newUsername", newUsername)
+                .putString("pass_$newUsername", oldPass)
+                .putString("role_$newUsername", newRole)
+                .putBoolean("active_$newUsername", active)
+                .apply()
+            toast("User তথ্য আপডেট হয়েছে")
+            showAdminPanel()
             return
         }
 
-        val completed = documents.filter {
-            (it.getString("status") ?: "Waiting").equals("Completed", true)
+        if (oldUsername.equals(newUsername, true)) {
+            rootRef.child("users").child(oldUsername).updateChildren(
+                mapOf("username" to newUsername, "role" to newRole, "active" to active)
+            ).addOnSuccessListener {
+                toast("User তথ্য আপডেট হয়েছে")
+                showAdminPanel()
+            }.addOnFailureListener { toast("User আপডেট করা যায়নি") }
+            return
         }
 
-        val doctorGroups = completed
-            .groupBy {
-                it.getString("doctorName")?.trim()
-                    ?.takeIf { name -> name.isNotEmpty() }
-                    ?: it.getString("doctor")?.trim()
-                        ?.takeIf { name -> name.isNotEmpty() }
-                    ?: "Doctor not specified"
+        rootRef.child("users").child(newUsername).get().addOnSuccessListener { existing ->
+            if (existing.exists()) {
+                toast("নতুন Username আগে থেকেই আছে")
+                return@addOnSuccessListener
             }
-            .toSortedMap(String.CASE_INSENSITIVE_ORDER)
-
-        val pdf = PdfDocument()
-        val pageWidth = 595
-        val pageHeight = 842
-        val margin = 32f
-        val usableWidth = pageWidth - (margin * 2)
-
-        val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val headingPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 10f
-        }
-        val smallPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8.5f
-        }
-        val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            strokeWidth = 1f
-        }
-
-        var pageNumber = 0
-        var page: PdfDocument.Page? = null
-        var canvas: android.graphics.Canvas? = null
-        var y = margin
-
-        fun newPage() {
-            page?.let { pdf.finishPage(it) }
-            pageNumber++
-            val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
-            page = pdf.startPage(info)
-            canvas = page!!.canvas
-            y = margin
-        }
-
-        fun ensureSpace(height: Float) {
-            if (y + height > pageHeight - margin) newPage()
-        }
-
-        fun text(value: String, x: Float, sizePaint: android.graphics.Paint = textPaint) {
-            canvas?.drawText(value, x, y, sizePaint)
-        }
-
-        fun wrapped(value: String, x: Float, maxWidth: Float, paint: android.graphics.Paint) {
-            val words = value.split(" ")
-            var line = ""
-            for (word in words) {
-                val test = if (line.isEmpty()) word else "$line $word"
-                if (paint.measureText(test) > maxWidth && line.isNotEmpty()) {
-                    ensureSpace(14f)
-                    text(line, x, paint)
-                    y += 13f
-                    line = word
-                } else {
-                    line = test
-                }
-            }
-            if (line.isNotEmpty()) {
-                ensureSpace(14f)
-                text(line, x, paint)
-                y += 13f
-            }
-        }
-
-        newPage()
-        text("Moon Diagnostic Center - Reports", margin, titlePaint)
-        y += 24f
-        text("Date: ${formatDisplayDate(date)}", margin, headingPaint)
-        y += 20f
-        text("Total Serial: ${documents.size}", margin, textPaint)
-        y += 15f
-        text("Completed Serial: ${completed.size}", margin, textPaint)
-        y += 15f
-        text("Incomplete Serial: ${documents.size - completed.size}", margin, textPaint)
-        y += 24f
-
-        if (completed.isEmpty()) {
-            text("No completed serials found for this date.", margin, headingPaint)
-            y += 20f
-        } else {
-            doctorGroups.forEach { (doctorName, doctorDocs) ->
-                ensureSpace(40f)
-                text("Doctor: $doctorName (${doctorDocs.size} completed)", margin, headingPaint)
-                y += 18f
-
-                val colX = floatArrayOf(
-                    margin,
-                    margin + usableWidth * 0.12f,
-                    margin + usableWidth * 0.38f,
-                    margin + usableWidth * 0.70f
+            rootRef.child("users").child(oldUsername).get().addOnSuccessListener { oldSnap ->
+                val data = mapOf(
+                    "username" to newUsername,
+                    "passwordHash" to (oldSnap.child("passwordHash").getValue(String::class.java) ?: ""),
+                    "role" to newRole,
+                    "active" to active
                 )
-                val headers = listOf("Serial", "Patient", "Care Of / Address", "Given By")
-                ensureSpace(20f)
-                headers.forEachIndexed { index, header ->
-                    text(header, colX[index], smallPaint)
-                }
-                y += 11f
-                canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
-                y += 12f
-
-                doctorDocs.sortedBy { it.getLong("number") ?: 0L }.forEach { document ->
-                    ensureSpace(34f)
-                    val number = document.getLong("number")?.toString()
-                        ?: document.getString("number") ?: "-"
-                    val patient = document.getString("patient") ?: "-"
-                    val careOfName = document.getString("careOfName")
-                        ?: document.getString("careOf") ?: "-"
-                    val careOfAddress = document.getString("careOfAddress") ?: ""
-                    val careOf = if (careOfAddress.isBlank()) careOfName else "$careOfName / $careOfAddress"
-                    val givenBy = document.getString("createdByName")?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                        ?: document.getString("createdByUid") ?: "-"
-                    val role = document.getString("createdByRole")?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                    val giver = if (role != null) "$givenBy ($role)" else givenBy
-
-                    text(number, colX[0], smallPaint)
-                    wrapped(patient, colX[1], usableWidth * 0.24f, smallPaint)
-                    val patientLines = maxOf(1, (smallPaint.measureText(patient) / (usableWidth * 0.24f)).toInt() + 1)
-                    val rowHeight = 13f * patientLines
-                    text(careOf, colX[2], smallPaint)
-                    wrapped(giver, colX[3], usableWidth * 0.30f, smallPaint)
-                    y += maxOf(13f, rowHeight)
-                    canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
-                    y += 8f
-                }
-                y += 8f
-            }
-        }
-
-        page?.let { pdf.finishPage(it) }
-
-        val fileName = "MDC_Report_${date}.pdf"
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/pdf"
-            putExtra(Intent.EXTRA_TITLE, fileName)
-        }
-
-        val tempFile = java.io.File(cacheDir, fileName)
-        try {
-            FileOutputStream(tempFile).use { output ->
-                pdf.writeTo(output)
-            }
-            pdf.close()
-            pendingReportPdfFile = tempFile
-            startActivityForResult(intent, REQUEST_REPORT_PDF)
-        } catch (error: Exception) {
-            pdf.close()
-            Toast.makeText(
-                this,
-                "PDF তৈরি করা যায়নি: ${error.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun showTotalSerial() {
-
-        selectedSerialDate = SimpleDateFormat(
-            "yyyy-MM-dd",
-            Locale.getDefault()
-        ).format(Calendar.getInstance().time)
-
-        clearActiveListeners()
-        currentScreen = SCREEN_TOTAL_SERIAL
-        setupSystemBars()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-
-        root.addView(
-            createInnerTopBar("Total Serial") {
-                showDashboard(currentRole)
-            }
-        )
-
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(30))
-        }
-
-        content.addView(TextView(this).apply {
-            text = "📋 Total Serial"
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(0, 0, 0, dp(12))
-        })
-
-        // =========================================================
-        // THREE TOP TABS
-        // =========================================================
-        val tabRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val allTab = createSmallButton("① সকল সিরিয়াল")
-        val myTab = createSmallButton("② আমার সিরিয়াল")
-        val adminTab = createSmallButton("③ User / Operator / Admin")
-
-        fun tabParams(weight: Float): LinearLayout.LayoutParams =
-            LinearLayout.LayoutParams(0, dp(52), weight).apply {
-                setMargins(dp(3), 0, dp(3), dp(10))
-            }
-
-        tabRow.addView(allTab, tabParams(1f))
-        tabRow.addView(myTab, tabParams(1f))
-        if (currentRole == "admin") {
-            tabRow.addView(adminTab, tabParams(1.35f))
-        }
-        content.addView(tabRow)
-
-        // =========================================================
-        // DATE SELECTOR
-        // =========================================================
-        val dateRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val previousDate = createSmallButton("‹ পূর্ববর্তী")
-        val dateButton = createPrimaryButton(
-            "📅 ${formatDisplayDate(selectedSerialDate)}"
-        )
-        val nextDate = createSmallButton("পরবর্তী ›")
-
-        dateRow.addView(previousDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
-            setMargins(0, dp(4), dp(4), dp(6))
-        })
-        dateRow.addView(dateButton, LinearLayout.LayoutParams(0, dp(54), 1.45f).apply {
-            setMargins(dp(4), dp(4), dp(4), dp(6))
-        })
-        dateRow.addView(nextDate, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
-            setMargins(dp(4), dp(4), 0, dp(6))
-        })
-        content.addView(dateRow)
-
-        val dateInfo = TextView(this).apply {
-            text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(primaryColor)
-            setPadding(dp(4), dp(2), dp(4), dp(10))
-        }
-        content.addView(dateInfo)
-
-        val progress = ProgressBar(this).apply {
-            visibility = View.GONE
-        }
-        content.addView(progress, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, dp(50)
-        ).apply { gravity = Gravity.CENTER })
-
-        // =========================================================
-        // THREE TAB CONTENT CONTAINERS
-        // =========================================================
-        val layer1Container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val layer2Container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        val adminContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-
-        content.addView(layer1Container)
-        content.addView(layer2Container)
-        if (currentRole == "admin") content.addView(adminContainer)
-
-        // ------------------------- Layer 1 -------------------------
-        val layer1Summary = TextView(this).apply {
-            text = "Serial লোড হচ্ছে..."
-            textSize = 16f
-            setTextColor(primaryColor)
-            setPadding(0, 0, 0, dp(8))
-        }
-        val layer1List = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        layer1Container.addView(TextView(this).apply {
-            text = "১ম — সকল সিরিয়াল"
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(0, dp(6), 0, dp(6))
-        })
-        layer1Container.addView(layer1Summary)
-        layer1Container.addView(layer1List)
-
-        // ------------------------- Layer 2 -------------------------
-        val layer2Summary = TextView(this).apply {
-            text = "আমার Serial লোড হচ্ছে..."
-            textSize = 16f
-            setTextColor(primaryColor)
-            setPadding(0, 0, 0, dp(8))
-        }
-        val layer2List = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        layer2Container.addView(TextView(this).apply {
-            text = "২য় — আমার সিরিয়াল"
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(0, dp(6), 0, dp(6))
-        })
-        layer2Container.addView(layer2Summary)
-        layer2Container.addView(layer2List)
-
-        // ------------------------- Layer 3 -------------------------
-        var adminUserSpinner: Spinner? = null
-        var adminUserOptions: List<Pair<String, String>> = emptyList()
-        var adminLayerSummary: TextView? = null
-        var adminLayerList: LinearLayout? = null
-
-        if (currentRole == "admin") {
-            adminContainer.addView(TextView(this).apply {
-                text = "৩য় — User / Operator / Admin"
-                textSize = 20f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-                setPadding(0, dp(6), 0, dp(6))
-            })
-            adminContainer.addView(TextView(this).apply {
-                text = "ব্যক্তি নির্বাচন করুন"
-                textSize = 16f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(darkText)
-                setPadding(0, dp(4), 0, dp(6))
-            })
-
-            adminUserSpinner = Spinner(this)
-            adminContainer.addView(adminUserSpinner, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(55)
-            ).apply { setMargins(0, 0, 0, dp(10)) })
-
-            adminLayerSummary = TextView(this).apply {
-                text = "User List লোড হচ্ছে..."
-                textSize = 16f
-                setTextColor(primaryColor)
-                setPadding(0, 0, 0, dp(8))
-            }
-            adminContainer.addView(adminLayerSummary)
-
-            adminLayerList = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            adminContainer.addView(adminLayerList)
-        }
-
-        scroll.addView(content)
-        scroll.onPullToRefresh = { refreshCurrentScreen() }
-        root.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
-        ))
-        setContentView(root)
-
-        var activeTab = 1
-        var allDocuments: List<DocumentSnapshot> = emptyList()
-
-        fun updateTabStyle() {
-            val selectedBg = roundedCardDrawable(topBarColor, dp(12))
-            val normalBg = roundedCardDrawable(Color.WHITE, dp(12))
-            val tabs = mutableListOf(allTab to 1, myTab to 2)
-            if (currentRole == "admin") tabs.add(adminTab to 3)
-            tabs.forEach { (button, index) ->
-                button.background = if (activeTab == index) selectedBg else normalBg
-                button.setTextColor(if (activeTab == index) Color.WHITE else primaryColor)
-                button.typeface = Typeface.DEFAULT_BOLD
-            }
-        }
-
-        fun renderAdminLayer(dateDocuments: List<DocumentSnapshot>) {
-            if (currentRole != "admin" || adminUserSpinner == null ||
-                adminLayerSummary == null || adminLayerList == null) return
-
-            if (adminUserOptions.isEmpty()) {
-                adminLayerSummary!!.text = "কোনো User / Operator / Admin পাওয়া যায়নি"
-                adminLayerList!!.removeAllViews()
-                return
-            }
-
-            val position = adminUserSpinner!!.selectedItemPosition.coerceIn(
-                0, adminUserOptions.size - 1
-            )
-            val selected = adminUserOptions[position]
-            val selectedUid = selected.first
-            val selectedNameRole = selected.second
-
-            val selectedSerials = dateDocuments.filter {
-                (it.getString("status") ?: "Waiting") != "Cancelled" &&
-                (it.getString("createdByUid") ?: "") == selectedUid
-            }.sortedWith(
-                compareByDescending<DocumentSnapshot> {
-                    it.getBoolean("patientVip") ?: false
-                }.thenBy { it.getLong("number") ?: 0L }
-            )
-
-            adminLayerSummary!!.text =
-                "$selectedNameRole | মোট Serial: ${selectedSerials.size}"
-            adminLayerList!!.removeAllViews()
-
-            if (selectedSerials.isEmpty()) {
-                adminLayerList!!.addView(createEmptyText(
-                    "এই তারিখে নির্বাচিত ব্যক্তির কোনো Serial নেই"
-                ))
-            } else {
-                selectedSerials.forEach { document ->
-                    adminLayerList!!.addView(createSerialCard(document))
-                }
-            }
-        }
-
-        fun renderAllLayers() {
-            val dateDocuments = allDocuments.filter {
-                (it.getString("status") ?: "Waiting") != "Cancelled" &&
-                (it.getString("createdDate") ?: "") == selectedSerialDate
-            }.sortedWith(
-                compareByDescending<DocumentSnapshot> {
-                    it.getBoolean("patientVip") ?: false
-                }.thenBy { document ->
-                    document.getTimestamp("createdAt")?.seconds ?: Long.MAX_VALUE
-                }.thenBy { document ->
-                    document.getTimestamp("createdAt")?.nanoseconds ?: Int.MAX_VALUE
-                }.thenBy {
-                    it.getLong("number") ?: 0L
-                }
-            )
-
-            layer1List.removeAllViews()
-            layer1Summary.text =
-                "📅 ${formatDisplayDate(selectedSerialDate)} | সকল ডাক্তার মিলিয়ে মোট Serial: ${dateDocuments.size}"
-            if (dateDocuments.isEmpty()) {
-                layer1List.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
-            } else {
-                dateDocuments.forEachIndexed { index, document ->
-                    layer1List.addView(
-                        createSerialCard(
-                            document,
-                            displayNumber = (index + 1).toLong()
-                        )
-                    )
-                }
-            }
-
-            layer2List.removeAllViews()
-            val myUid = auth.currentUser?.uid ?: ""
-            val myDocuments = dateDocuments.filter {
-                (it.getString("createdByUid") ?: "") == myUid
-            }
-            layer2Summary.text =
-                "👤 ${currentUserDisplayName.ifBlank { "বর্তমান Account" }} | মোট Serial: ${myDocuments.size}"
-            if (myDocuments.isEmpty()) {
-                layer2List.addView(createEmptyText("এই তারিখে আপনার কোনো Serial নেই"))
-            } else {
-                myDocuments.forEach { document ->
-                    layer2List.addView(createSerialCard(document))
-                }
-            }
-
-            renderAdminLayer(dateDocuments)
-        }
-
-        fun showOnlyTab(tab: Int) {
-            if (tab == 3 && currentRole != "admin") return
-            activeTab = tab
-            layer1Container.visibility = if (tab == 1) View.VISIBLE else View.GONE
-            layer2Container.visibility = if (tab == 2) View.VISIBLE else View.GONE
-            adminContainer.visibility = if (tab == 3 && currentRole == "admin") {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
-            updateTabStyle()
-        }
-
-        fun loadSerials() {
-            progress.visibility = View.VISIBLE
-            layer1Summary.text = "Serial লোড হচ্ছে..."
-            layer2Summary.text = "আমার Serial লোড হচ্ছে..."
-
-            activeListeners.add(
-                db.collection("serials")
-                    .addSnapshotListener { result, error ->
-                        if (error != null || result == null) {
-                            progress.visibility = View.GONE
-                            layer1Summary.text = "Serial লোড করা যায়নি"
-                            layer2Summary.text = "Serial লোড করা যায়নি"
-                            if (error != null) Toast.makeText(this, "Total Serial পাওয়া যায়নি: ${error.message}", Toast.LENGTH_LONG).show()
-                            return@addSnapshotListener
-                        }
-                        allDocuments = result.documents.filterNot {
-                            (it.getString("status") ?: "Waiting") == "Cancelled"
-                        }
-                        progress.visibility = View.GONE
-                        renderAllLayers()
+                rootRef.child("users").child(newUsername).setValue(data)
+                    .addOnSuccessListener {
+                        rootRef.child("users").child(oldUsername).removeValue()
+                            .addOnSuccessListener {
+                                toast("User তথ্য আপডেট হয়েছে")
+                                showAdminPanel()
+                            }
+                            .addOnFailureListener { toast("পুরনো User record সরানো যায়নি") }
                     }
-            )
-        }
-
-        fun moveDate(days: Int) {
-            val calendar = Calendar.getInstance()
-            try {
-                val parser = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                calendar.time = parser.parse(selectedSerialDate)
-                    ?: Calendar.getInstance().time
-            } catch (ignored: Exception) {
-            }
-            calendar.add(Calendar.DAY_OF_MONTH, days)
-            selectedSerialDate = SimpleDateFormat(
-                "yyyy-MM-dd", Locale.getDefault()
-            ).format(calendar.time)
-            dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
-            dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-            renderAllLayers()
-        }
-
-        previousDate.setOnClickListener { moveDate(-1) }
-        nextDate.setOnClickListener { moveDate(1) }
-
-        dateButton.setOnClickListener {
-            showAddSerialDatePicker {
-                dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
-                dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
-                renderAllLayers()
+                    .addOnFailureListener { toast("নতুন User record তৈরি করা যায়নি") }
             }
         }
-
-        allTab.setOnClickListener { showOnlyTab(1) }
-        myTab.setOnClickListener { showOnlyTab(2) }
-
-        if (currentRole == "admin") {
-            adminTab.setOnClickListener { showOnlyTab(3) }
-
-            adminUserSpinner!!.onItemSelectedListener =
-                object : AdapterView.OnItemSelectedListener {
-                    override fun onNothingSelected(parent: AdapterView<*>?) {}
-                    override fun onItemSelected(
-                        parent: AdapterView<*>?,
-                        view: View?,
-                        position: Int,
-                        id: Long
-                    ) {
-                        if (allDocuments.isNotEmpty()) renderAllLayers()
-                    }
-                }
-
-            db.collection("users")
-                .get()
-                .addOnSuccessListener { result ->
-                    adminUserOptions = result.documents.mapNotNull { document ->
-                        val role = document.getString("role") ?: ""
-                        val normalizedRole = role.lowercase(Locale.getDefault())
-                        if (normalizedRole !in listOf("user", "operator", "admin")) {
-                            return@mapNotNull null
-                        }
-
-                        val uid = document.id
-                        val name = document.getString("name")?.trim()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: document.getString("displayName")?.trim()
-                                ?.takeIf { it.isNotEmpty() }
-                            ?: document.getString("username")?.trim()
-                                ?.takeIf { it.isNotEmpty() }
-                            ?: document.getString("email")?.trim()
-                                ?.takeIf { it.isNotEmpty() }
-                            ?: uid
-
-                        val roleText = when (normalizedRole) {
-                            "admin" -> "Admin"
-                            "operator" -> "Operator"
-                            else -> "User"
-                        }
-                        uid to "$name ($roleText)"
-                    }.sortedBy {
-                        it.second.lowercase(Locale.getDefault())
-                    }
-
-                    adminUserSpinner!!.adapter = ArrayAdapter(
-                        this,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        adminUserOptions.map { it.second }
-                    )
-
-                    if (allDocuments.isNotEmpty()) renderAllLayers()
-                }
-                .addOnFailureListener { error ->
-                    adminUserOptions = emptyList()
-                    adminLayerSummary?.text = "User List লোড করা যায়নি"
-                    Toast.makeText(
-                        this,
-                        "User List পাওয়া যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        }
-
-        showOnlyTab(1)
-        loadSerials()
     }
 
-    private fun createInnerTopBar(
-        titleText: String,
-        backAction: () -> Unit
-    ): LinearLayout {
-
-        val bar =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.HORIZONTAL
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setPadding(
-                    dp(8),
-                    getStatusBarHeight() + dp(8),
-                    dp(15),
-                    dp(12)
-                )
-
-                setBackgroundColor(
-                    topBarColor
-                )
-
-                elevation =
-                    dp(8).toFloat()
-            }
-
-        val back =
-            ImageButton(this).apply {
-
-                setImageResource(
-                    android.R.drawable.ic_media_previous
-                )
-
-                setBackgroundColor(
-                    Color.TRANSPARENT
-                )
-
-                setColorFilter(
-                    Color.WHITE
-                )
-
-                setOnClickListener {
-                    backAction()
-                }
-            }
-
-        bar.addView(
-            back,
-            LinearLayout.LayoutParams(
-                dp(60),
-                dp(60)
-            )
-        )
-
-        val title =
-            TextView(this).apply {
-
-                text =
-                    titleText
-
-                textSize = 22f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                gravity =
-                    Gravity.CENTER_VERTICAL
-
-                setPadding(
-                    dp(10),
-                    0,
-                    0,
-                    0
-                )
-            }
-
-        bar.addView(
-            title,
-            LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                1f
-            )
-        )
-
-
-        return bar.apply {
-
-            layoutParams =
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(88)
-                )
-        }
-    }
-
-    // =========================================================
-    // INFO TEXT
-    // =========================================================
-
-    private fun createInfoText(
-        label: String,
-        value: String
-    ): TextView {
-
-        return TextView(this).apply {
-
-            text =
-                if (label.isEmpty()) {
-                    value
-                } else {
-                    "$label: $value"
-                }
-
-            textSize = 15f
-
-            setTextColor(
-                lightText
-            )
-
-            setPadding(
-                0,
-                dp(5),
-                0,
-                dp(2)
-            )
-        }
-    }
-
-    // =========================================================
-    // EMPTY
-    // =========================================================
-
-    private fun createEmptyText(
-        message: String
-    ): TextView {
-
-        return TextView(this).apply {
-
-            text = message
-
-            textSize = 18f
-
-            gravity =
-                Gravity.CENTER
-
-            setTextColor(
-                lightText
-            )
-
-            setPadding(
-                dp(10),
-                dp(40),
-                dp(10),
-                dp(40)
-            )
-        }
-    }
-
-    // =========================================================
-    // FORM LABEL
-    // =========================================================
-
-    private fun addFormLabel(
-        parent: LinearLayout,
-        text: String
-    ) {
-
-        val label =
-            TextView(this).apply {
-
-                this.text = text
-
-                textSize = 16f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(4),
-                    dp(4),
-                    dp(4),
-                    dp(6)
-                )
-            }
-
-        parent.addView(label)
-    }
-
-    // =========================================================
-    // FORM INPUT
-    // =========================================================
-
-    private fun createFormInput(
-        hintText: String
-    ): EditText {
-
-        return EditText(this).apply {
-
-            hint =
-                hintText
-
-            textSize = 17f
-
-            setTextColor(
-                darkText
-            )
-
-            setHintTextColor(
-                Color.rgb(
-                    140,
-                    140,
-                    140
-                )
-            )
-
-            setSingleLine(true)
-
-            gravity =
-                Gravity.CENTER_VERTICAL
-
-            setPadding(
-                dp(16),
-                dp(10),
-                dp(16),
-                dp(10)
-            )
-
-            background =
-                roundedCardDrawable(
-                    Color.WHITE,
-                    dp(12)
-                )
-        }
-    }
-
-    // =========================================================
-    // FORM PARAMS
-    // =========================================================
-
-    private fun formParams():
-            LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(58)
-        ).apply {
-
-            setMargins(
-                0,
-                0,
-                0,
-                dp(14)
-            )
-        }
-    }
-
-    // =========================================================
-    // STATUS TEXT
-    // =========================================================
-
-    private fun createStatusText():
-            TextView {
-
-        return TextView(this).apply {
-
-            textSize = 15f
-
-            gravity =
-                Gravity.CENTER
-
-            setTextColor(
-                primaryColor
-            )
-
-            setPadding(
-                0,
-                dp(10),
-                0,
-                dp(10)
-            )
-        }
-    }
-
-    // =========================================================
-    // PRIMARY BUTTON
-    // =========================================================
-
-    private fun createPrimaryButton(
-        text: String
-    ): Button {
-
-        return Button(this).apply {
-
-            this.text = text
-
-            textSize = 18f
-
-            typeface =
-                Typeface.DEFAULT_BOLD
-
-            setTextColor(
-                Color.WHITE
-            )
-
-            setAllCaps(false)
-
-            background =
-                roundedCardDrawable(
-                    topBarColor,
-                    dp(15)
-                )
-
-            elevation =
-                dp(4).toFloat()
-        }
-    }
-
-    // =========================================================
-    // SMALL BUTTON
-    // =========================================================
-
-    private fun createSmallButton(
-        text: String
-    ): Button {
-
-        return Button(this).apply {
-
-            this.text = text
-
-            textSize = 13f
-
-            setAllCaps(false)
-
-            setTextColor(
-                primaryColor
-            )
-
-            setPadding(
-                dp(5),
-                0,
-                dp(5),
-                0
-            )
-
-            background =
-                roundedCardDrawable(
-                    Color.rgb(
-                        235,
-                        242,
-                        250
-                    ),
-                    dp(10)
-                )
-
-            layoutParams =
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    dp(45)
-                ).apply {
-
-                    setMargins(
-                        dp(4),
-                        0,
-                        dp(4),
-                        0
-                    )
-                }
-        }
-    }
-
-    // =========================================================
-    // DASHBOARD CARD
-    // =========================================================
-
-    private fun createDashboardCard(
-        icon: String,
-        label: String,
-        cardColor: Int
-    ): LinearLayout {
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                gravity =
-                    Gravity.CENTER
-
-                setPadding(
-                    dp(8),
-                    dp(10),
-                    dp(8),
-                    dp(10)
-                )
-
-                background =
-                    roundedCardDrawable(
-                        cardColor,
-                        dp(18)
-                    )
-
-                elevation =
-                    dp(5).toFloat()
-
-                isClickable = true
-                isFocusable = true
-            }
-
-        val iconView =
-            TextView(this).apply {
-
-                text = icon
-
-                textSize = 42f
-
-                gravity =
-                    Gravity.CENTER
-            }
-
-        val labelView =
-            TextView(this).apply {
-
-                text = label
-
-                textSize = 17f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    darkText
-                )
-
-                setPadding(
-                    dp(4),
-                    dp(5),
-                    dp(4),
-                    0
-                )
-            }
-
-        card.addView(
-            iconView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(60)
-            )
-        )
-
-        card.addView(labelView)
-
-        return card
-    }
-
-    // =========================================================
-    // GRID PARAMS
-    // =========================================================
-
-    private fun gridParams():
-            LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
-            0,
-            dp(155),
-            1f
-        ).apply {
-
-            setMargins(
-                dp(6),
-                dp(6),
-                dp(6),
-                dp(6)
-            )
-        }
-    }
-
-    // =========================================================
-    // SUMMARY PARAMS
-    // =========================================================
-
-    private fun summaryParams():
-            LinearLayout.LayoutParams {
-
-        return LinearLayout.LayoutParams(
-            0,
-            dp(115),
-            1f
-        ).apply {
-
-            setMargins(
-                dp(4),
-                dp(4),
-                dp(4),
-                dp(4)
-            )
-        }
-    }
-
-    // =========================================================
-    // SUMMARY CARD
-    // =========================================================
-
-    private fun createSummaryCard(
-        title: String,
-        value: String
-    ): LinearLayout {
-
-        val card =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                gravity =
-                    Gravity.CENTER
-
-                background =
-                    roundedCardDrawable(
-                        Color.WHITE,
-                        dp(14)
-                    )
-
-                elevation =
-                    dp(2).toFloat()
-            }
-
-        val titleText =
-            TextView(this).apply {
-
-                text = title
-
-                textSize = 13f
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    lightText
-                )
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-            }
-
-        val valueText =
-            TextView(this).apply {
-
-                text = value
-
-                textSize = 25f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                gravity =
-                    Gravity.CENTER
-
-                setTextColor(
-                    primaryColor
-                )
-            }
-
-        card.addView(titleText)
-        card.addView(valueText)
-
-        return card
-    }
-
-    // =========================================================
-    // ROUNDED BACKGROUND
-    // =========================================================
-
-    private fun roundedCardDrawable(
-        color: Int,
-        radius: Int
-    ): GradientDrawable {
-
-        return GradientDrawable().apply {
-
-            setColor(color)
-
-            cornerRadius =
-                radius.toFloat()
-
-            setStroke(
-                dp(1),
-                Color.argb(
-                    35,
-                    0,
-                    0,
-                    0
-                )
-            )
-        }
-    }
-
-    // =========================================================
-    // NAVIGATION DRAWER
-    // =========================================================
-
-    // =========================================================
-    // ADMIN CONTROL PANEL
-    // =========================================================
-
-    private fun showAdminControlPanel() {
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধু Admin Control Panel ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধুমাত্র Admin এই পেজ ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        currentScreen = SCREEN_DASHBOARD
-        setupSystemBars()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(backgroundColor)
-        }
-        root.addView(createInnerTopBar("Admin Control Panel") { showDashboard(currentRole) })
-
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(30))
-        }
-
-        content.addView(TextView(this).apply {
-            text = "👑 Admin Control Panel"
-            textSize = 27f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(darkText)
-            setPadding(0, 0, 0, dp(8))
-        })
-        content.addView(TextView(this).apply {
-            text = "অ্যাপের প্রধান প্রশাসনিক কার্যক্রম এখান থেকে পরিচালনা করুন।"
-            textSize = 15f
-            setTextColor(lightText)
-            setPadding(0, 0, 0, dp(18))
-        })
-
-        val actions = listOf(
-            "👥  User Management" to { showUserManagement() },
-            "👨‍⚕️  Doctor Management" to { showDoctorList() },
-            "👤  Care Of Management" to { showCareOfList() },
-            "🔔  Notifications" to { showNotifications() },
-            "⚙️  Settings" to { showSettings() },
-            "📋  Total Serial" to { showTotalSerial() }
-        )
-
-        actions.forEach { (title, action) ->
-            content.addView(createPrimaryButton(title).apply {
-                setOnClickListener { action() }
-            }, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(58)
-            ).apply { setMargins(0, 0, 0, dp(10)) })
-        }
-
-        scroll.addView(content)
-        scroll.onPullToRefresh = { refreshCurrentScreen() }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
-    }
-
-    // =========================================================
-    // USER MANAGEMENT
-    // =========================================================
-
-    private fun showUserManagement() {
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধু Admin User Management ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধুমাত্র Admin User Management ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        setupSystemBars()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
-        root.addView(createInnerTopBar("User Management") { showAdminControlPanel() })
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
-        content.addView(TextView(this).apply {
-            text = "👥 User / Operator Management"
-            textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText)
-        })
-        content.addView(TextView(this).apply {
-            text = "এখান থেকেই সরাসরি User / Operator account তৈরি করা যাবে। Firebase Console-এ আলাদা করে account তৈরি করার দরকার নেই।"
-            textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(10))
-        })
-
-        content.addView(
-            createPrimaryButton("＋  নতুন User / Operator তৈরি করুন").apply {
-                setOnClickListener { showCreateUserDialog() }
-            },
-            LinearLayout.LayoutParams(-1, dp(58)).apply {
-                setMargins(0, 0, 0, dp(14))
-            }
-        )
-
-        db.collection("users").get().addOnSuccessListener { result ->
-            if (result.isEmpty) {
-                content.addView(createEmptyText("কোনো User পাওয়া যায়নি"))
-            } else {
-                result.documents.sortedBy { it.getString("name") ?: it.getString("username") ?: it.id }
-                    .forEach { doc ->
-                        val uid = doc.id
-                        val name = doc.getString("name") ?: doc.getString("username") ?: uid
-                        val role = doc.getString("role") ?: "user"
-                        val active = doc.getBoolean("active") ?: false
-                        val card = LinearLayout(this).apply {
-                            orientation = LinearLayout.VERTICAL
-                            setPadding(dp(14), dp(12), dp(14), dp(12))
-                            background = roundedCardDrawable(Color.WHITE, dp(14))
-                            elevation = dp(2).toFloat()
-                        }
-                        card.addView(TextView(this).apply { text = name; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
-                        card.addView(TextView(this).apply { text = "Role: ${role.uppercase()}\nStatus: ${if (active) "Active" else "Inactive"}"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(5), 0, dp(8)) })
-                        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                        val toggle = createPrimaryButton(if (active) "Deactivate" else "Activate")
-                        toggle.setOnClickListener {
-                            db.collection("users").document(uid).update("active", !active)
-                                .addOnSuccessListener { showUserManagement() }
-                                .addOnFailureListener { e -> Toast.makeText(this, "Update ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show() }
-                        }
-                        row.addView(toggle, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(0, 0, dp(6), 0) })
-                        val roleBtn = createPrimaryButton("Change Role")
-                        roleBtn.setOnClickListener { showRoleChangeDialog(uid, role) }
-                        row.addView(roleBtn, LinearLayout.LayoutParams(0, dp(50), 1f).apply { setMargins(dp(6), 0, 0, 0) })
-                        card.addView(row)
-                        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
-                    }
-            }
-        }.addOnFailureListener { e -> content.addView(createEmptyText("User List পাওয়া যায়নি: ${e.message}")) }
-
-        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
-    }
-
-    // =========================================================
-    // CREATE USER / OPERATOR DIRECTLY FROM ADMIN APP
-    // =========================================================
-
-    private fun showCreateUserDialog() {
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধু Admin নতুন User / Operator তৈরি করতে পারবেন", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), 0, dp(20), 0)
-        }
-
-        val nameInput = createFormInput("নাম")
-        val emailInput = createFormInput("Login Email")
-        emailInput.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-        val passwordInput = createFormInput("Temporary Password (কমপক্ষে 6 অক্ষর)")
-        passwordInput.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        val roleSpinner = Spinner(this)
-        val roles = arrayOf("user", "operator")
-        roleSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            roles.map { if (it == "operator") "Operator" else "User" }
-        )
-
-        box.addView(TextView(this).apply {
-            text = "নাম"
-            textSize = 14f
-            setTextColor(lightText)
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        box.addView(nameInput, formParams())
-        box.addView(TextView(this).apply {
-            text = "Login Email"
-            textSize = 14f
-            setTextColor(lightText)
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        box.addView(emailInput, formParams())
-        box.addView(TextView(this).apply {
-            text = "Password"
-            textSize = 14f
-            setTextColor(lightText)
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        box.addView(passwordInput, formParams())
-        box.addView(TextView(this).apply {
-            text = "Role"
-            textSize = 14f
-            setTextColor(lightText)
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        box.addView(roleSpinner, LinearLayout.LayoutParams(-1, dp(55)))
-
+    private fun showResetPasswordDialog(username: String) {
+        val field = input("নতুন Password", true)
         AlertDialog.Builder(this)
-            .setTitle("নতুন User / Operator")
-            .setView(box)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Create", null)
-            .create()
-            .also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val name = nameInput.text.toString().trim()
-                        val email = emailInput.text.toString().trim()
-                        val password = passwordInput.text.toString()
-                        val role = if (roleSpinner.selectedItemPosition == 1) "operator" else "user"
-
-                        if (name.isEmpty()) {
-                            nameInput.error = "নাম দিন"
-                            return@setOnClickListener
-                        }
-                        if (email.isEmpty() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-                            emailInput.error = "সঠিক Email দিন"
-                            return@setOnClickListener
-                        }
-                        if (password.length < 6) {
-                            passwordInput.error = "Password কমপক্ষে 6 অক্ষরের হতে হবে"
-                            return@setOnClickListener
-                        }
-
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
-                        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
-                        Toast.makeText(this, "Account তৈরি হচ্ছে...", Toast.LENGTH_SHORT).show()
-
-                        createAuthUserFromAdmin(name, email, password, role, dialog)
-                    }
+            .setTitle("$username-এর Password Reset")
+            .setView(field)
+            .setNegativeButton("বাতিল", null)
+            .setPositiveButton("Reset") { _, _ ->
+                val password = field.text.toString()
+                if (password.length < 4) {
+                    toast("Password কমপক্ষে ৪ অক্ষরের হতে হবে")
+                    return@setPositiveButton
                 }
-            }
-            .show()
-    }
-
-    private fun createAuthUserFromAdmin(
-        name: String,
-        email: String,
-        password: String,
-        role: String,
-        dialog: AlertDialog
-    ) {
-        val primaryAdminUid = auth.currentUser?.uid
-        if (primaryAdminUid == null) {
-            dialog.dismiss()
-            Toast.makeText(this, "Admin session পাওয়া যায়নি", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        try {
-            val primaryApp = FirebaseApp.getInstance()
-            val secondaryAppName = "MDC_USER_CREATOR"
-            val secondaryApp = try {
-                FirebaseApp.getInstance(secondaryAppName)
-            } catch (_: Exception) {
-                FirebaseApp.initializeApp(this, primaryApp.options, secondaryAppName)
-                    ?: throw IllegalStateException("Secondary FirebaseApp initialize করা যায়নি")
-            }
-
-            val secondaryAuth = FirebaseAuth.getInstance(secondaryApp)
-            secondaryAuth.createUserWithEmailAndPassword(email, password)
-                .addOnSuccessListener { authResult ->
-                    val newUser = authResult.user
-                    if (newUser == null) {
-                        dialog.dismiss()
-                        Toast.makeText(this, "Firebase account তৈরি হয়নি", Toast.LENGTH_LONG).show()
-                        return@addOnSuccessListener
-                    }
-
-                    val uid = newUser.uid
-                    val profile = hashMapOf<String, Any>(
-                        "name" to name,
-                        "email" to email,
-                        "role" to role,
-                        "active" to true,
-                        "createdByUid" to primaryAdminUid,
-                        "createdAt" to FieldValue.serverTimestamp()
-                    )
-
-                    // Primary FirebaseAuth session remains the Admin session;
-                    // only the secondary FirebaseApp creates the new account.
-                    db.collection("users").document(uid).set(profile)
-                        .addOnSuccessListener {
-                            secondaryAuth.signOut()
-                            dialog.dismiss()
-                            Toast.makeText(
-                                this,
-                                "$name ($role) সফলভাবে তৈরি হয়েছে। এখন ওই Email ও Password দিয়ে Login করা যাবে।",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            showUserManagement()
-                        }
-                        .addOnFailureListener { error ->
-                            // Roll back the Auth account if the profile write fails.
-                            newUser.delete()
-                                .addOnCompleteListener {
-                                    secondaryAuth.signOut()
-                                    dialog.dismiss()
-                                    Toast.makeText(
-                                        this,
-                                        "User profile তৈরি করা যায়নি: ${error.message}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                        }
-                }
-                .addOnFailureListener { error ->
-                    dialog.dismiss()
-                    Toast.makeText(
-                        this,
-                        "Firebase account তৈরি ব্যর্থ: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-        } catch (error: Exception) {
-            dialog.dismiss()
-            Toast.makeText(
-                this,
-                "Account creation setup ব্যর্থ: ${error.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun showRoleChangeDialog(uid: String, current: String) {
-        val roles = arrayOf("admin", "operator", "user")
-        var selected = roles.indexOf(current.lowercase()).coerceAtLeast(0)
-        AlertDialog.Builder(this)
-            .setTitle("User Role পরিবর্তন")
-            .setSingleChoiceItems(roles, selected) { _, which -> selected = which }
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { _, _ ->
-                db.collection("users").document(uid).update("role", roles[selected])
-                    .addOnSuccessListener { showUserManagement() }
-                    .addOnFailureListener { e -> Toast.makeText(this, "Role update ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show() }
+                resetUserPassword(username, password)
             }.show()
     }
 
-    // =========================================================
-    // NOTIFICATIONS
-    // =========================================================
-
-    private fun showNotifications() {
-        setupSystemBars()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
-        root.addView(createInnerTopBar("Notifications") { showDashboard(currentRole) })
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
-        content.addView(TextView(this).apply { text = "🔔 Notifications"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
-        if (currentRole == "admin") {
-            content.addView(createPrimaryButton("＋  নতুন Notification").apply { setOnClickListener { showCreateNotificationDialog() } }, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, dp(12), 0, dp(12)) })
+    private fun resetUserPassword(username: String, password: String) {
+        val hash = hashPassword(password)
+        if (firebaseAvailable) {
+            rootRef.child("users").child(username).child("passwordHash").setValue(hash)
+                .addOnSuccessListener { toast("$username-এর Password reset হয়েছে") }
+                .addOnFailureListener { toast("Password reset করা যায়নি") }
+        } else {
+            pref.edit().putString("pass_$username", hash).apply()
+            toast("$username-এর Password reset হয়েছে")
         }
-        db.collection("notifications").orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING).limit(50).get()
-            .addOnSuccessListener { result ->
-                if (result.isEmpty) content.addView(createEmptyText("কোনো Notification নেই"))
-                result.documents.forEach { doc ->
-                    val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)); background = roundedCardDrawable(Color.WHITE, dp(14)); elevation = dp(2).toFloat() }
-                    card.addView(TextView(this).apply { text = doc.getString("title") ?: "Notification"; textSize = 18f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
-                    card.addView(TextView(this).apply { text = doc.getString("message") ?: ""; textSize = 15f; setTextColor(lightText); setPadding(0, dp(5), 0, 0) })
-                    content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(10)) })
-                }
-            }.addOnFailureListener { e -> content.addView(createEmptyText("Notification পড়া যায়নি: ${e.message}")) }
-        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
     }
 
-    private fun showCreateNotificationDialog() {
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0) }
-        val title = createFormInput("Notification Title")
-        val message = createFormInput("Message")
-        message.setSingleLine(false); message.minLines = 4; message.gravity = Gravity.TOP
-        box.addView(title, formParams()); box.addView(message, LinearLayout.LayoutParams(-1, dp(110)).apply { setMargins(0, 0, 0, dp(8)) })
-        AlertDialog.Builder(this).setTitle("নতুন Notification").setView(box).setNegativeButton("Cancel", null).setPositiveButton("Send", null).create().also { dialog ->
-            dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val t = title.text.toString().trim(); val m = message.text.toString().trim()
-                if (t.isEmpty() || m.isEmpty()) { Toast.makeText(this, "Title ও Message দিন", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-                db.collection("notifications").add(hashMapOf("title" to t, "message" to m, "createdByUid" to (auth.currentUser?.uid ?: ""), "createdAt" to FieldValue.serverTimestamp(), "active" to true))
-                    .addOnSuccessListener { dialog.dismiss(); showNotifications() }
-                    .addOnFailureListener { e -> Toast.makeText(this, "Notification তৈরি করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
-            } }
-        }.show()
-    }
-
-    // =========================================================
-    // SETTINGS
-    // =========================================================
-
-    private fun showSettings() {
-        if (currentRole != "admin") {
-            Toast.makeText(this, "শুধু Admin Settings ব্যবহার করতে পারবেন", Toast.LENGTH_LONG).show()
+    private fun setUserActive(username: String, active: Boolean) {
+        if (username.equals("admin", true)) {
+            toast("Admin account-এর status এখান থেকে পরিবর্তন করা যাবে না")
             return
         }
-        setupSystemBars()
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(backgroundColor) }
-        root.addView(createInnerTopBar("Settings") { showDashboard(currentRole) })
-        val scroll = PullToRefreshScrollView(this)
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(30)) }
-        content.addView(TextView(this).apply { text = "⚙️ App Settings"; textSize = 25f; typeface = Typeface.DEFAULT_BOLD; setTextColor(darkText) })
-        val centerName = createFormInput("Center Name")
-        val notice = createFormInput("Default Notice")
-        val autoRefresh = createFormInput("Auto Refresh Seconds")
-        content.addView(TextView(this).apply { text = "Center Name"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(12), 0, dp(4)) })
-        content.addView(centerName, formParams())
-        content.addView(TextView(this).apply { text = "Default Notice"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
-        content.addView(notice, formParams())
-        content.addView(TextView(this).apply { text = "Auto Refresh Seconds"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(8), 0, dp(4)) })
-        content.addView(autoRefresh, formParams())
-        val save = createPrimaryButton("💾  Save Settings")
-        content.addView(save, LinearLayout.LayoutParams(-1, dp(58)).apply { setMargins(0, dp(12), 0, 0) })
-        db.collection("settings").document("app").get().addOnSuccessListener { doc ->
-            centerName.setText(doc.getString("centerName") ?: "Moon Diagnostic Center")
-            notice.setText(doc.getString("defaultNotice") ?: "")
-            autoRefresh.setText((doc.getLong("autoRefreshSeconds") ?: 20L).toString())
+        if (firebaseAvailable) {
+            rootRef.child("users").child(username).child("active").setValue(active)
+                .addOnSuccessListener {
+                    toast(if (active) "$username Active হয়েছে" else "$username Deactivate হয়েছে")
+                    showAdminPanel()
+                }
+                .addOnFailureListener { toast("Status পরিবর্তন করা যায়নি") }
+        } else {
+            pref.edit().putBoolean("active_$username", active).apply()
+            toast(if (active) "$username Active হয়েছে" else "$username Deactivate হয়েছে")
+            showAdminPanel()
         }
-        save.setOnClickListener {
-            val seconds = autoRefresh.text.toString().toLongOrNull()?.coerceAtLeast(5L) ?: 20L
-            db.collection("settings").document("app").set(hashMapOf("centerName" to centerName.text.toString().trim(), "defaultNotice" to notice.text.toString().trim(), "autoRefreshSeconds" to seconds, "updatedByUid" to (auth.currentUser?.uid ?: ""), "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
-                .addOnSuccessListener { Toast.makeText(this, "Settings সংরক্ষণ হয়েছে", Toast.LENGTH_SHORT).show() }
-                .addOnFailureListener { e -> Toast.makeText(this, "Settings সংরক্ষণ করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show() }
-        }
-        scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); setContentView(root)
     }
 
-    private fun createNavigationMenu(
-        navigationView: NavigationView,
-        role: String
-    ) {
+    private fun confirmDeleteUser(username: String) {
+        AlertDialog.Builder(this)
+            .setTitle("User Delete")
+            .setMessage("$username-কে স্থায়ীভাবে Delete করবেন?")
+            .setNegativeButton("না", null)
+            .setPositiveButton("হ্যাঁ, Delete") { _, _ -> deleteUser(username) }
+            .show()
+    }
 
-        navigationView.menu.clear()
+    private fun deleteUser(username: String) {
+        if (username.equals("admin", true)) {
+            toast("Admin account মুছা যাবে না")
+            return
+        }
+        if (firebaseAvailable) {
+            rootRef.child("users").child(username).removeValue()
+                .addOnSuccessListener { toast("$username মুছে ফেলা হয়েছে"); showAdminPanel() }
+                .addOnFailureListener { toast("User মুছা যায়নি") }
+        } else {
+            pref.edit()
+                .remove("user_$username")
+                .remove("pass_$username")
+                .remove("role_$username")
+                .remove("active_$username")
+                .apply()
+            toast("$username মুছে ফেলা হয়েছে")
+            showAdminPanel()
+        }
+    }
 
-        val header =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    dp(30),
-                    dp(40),
-                    dp(20),
-                    dp(30)
-                )
-
-                setBackgroundColor(
-                    topBarColor
-                )
+    // =========================================================
+    // REAL-TIME LISTENERS
+    // =========================================================
+    private fun seedFirebaseAdminIfNeeded() {
+        if (!firebaseAvailable) return
+        rootRef.child("users").child("admin").get().addOnSuccessListener { snap ->
+            if (!snap.exists()) {
+                val admin = mapOf("username" to "admin", "passwordHash" to hashPassword("admin123"), "role" to "Admin", "active" to true)
+                rootRef.child("users").child("admin").setValue(admin)
             }
+        }
+    }
 
-        val logo =
-            TextView(this).apply {
+    private fun initializeFirebaseIfAvailable() {
+        try {
+            db = FirebaseDatabase.getInstance()
+            rootRef = db.reference
+            firebaseAvailable = true
+        } catch (_: Exception) {
+            firebaseAvailable = false
+            loadLocalData()
+        }
+    }
 
-                text = "MDC"
+    private fun startRealtimeListeners() {
+        if (currentUsername.isEmpty()) return
+        stopRealtimeListeners()
 
-                textSize = 34f
+        if (!firebaseAvailable) {
+            loadLocalData()
+            return
+        }
 
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.WHITE
-                )
+        val dateKey = todayKey()
+        serialListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                serials.clear()
+                for (child in snapshot.children) {
+                    val r = snapshotToSerialRecord(child, dateKey)
+                    if (r != null && !r.status.equals("Cancelled", true)) serials.add(r)
+                }
+                serials.sortBy { it.number }
+                when (currentScreen) {
+                    Screen.DASHBOARD, Screen.TOTAL, Screen.DOCTOR_SERIALS, Screen.CARE_SERIALS -> refreshCurrentScreen()
+                    else -> Unit
+                }
             }
+            override fun onCancelled(error: DatabaseError) { toast("Serial real-time data পড়া যায়নি") }
+        }
+        rootRef.child("serials").child(dateKey).addValueEventListener(serialListener!!)
 
-        val centerName =
-            TextView(this).apply {
+        doctorListener = namedListListener(doctors)
+        careListener = namedListListener(careOfs)
+        rootRef.child("doctors").addValueEventListener(doctorListener!!)
+        rootRef.child("careOfs").addValueEventListener(careListener!!)
+    }
 
-                text =
-                    "মুন ডায়াগনস্টিক সেন্টার"
-
-                textSize = 20f
-
-                typeface =
-                    Typeface.DEFAULT_BOLD
-
-                setTextColor(
-                    Color.WHITE
-                )
-
-                setPadding(
-                    0,
-                    dp(8),
-                    0,
-                    dp(8)
-                )
+    private fun namedListListener(target: MutableList<String>): ValueEventListener = object : ValueEventListener {
+        override fun onDataChange(snapshot: DataSnapshot) {
+            target.clear()
+            for (child in snapshot.children) {
+                val value = child.getValue(String::class.java) ?: child.key ?: continue
+                if (value.isNotBlank()) target.add(value)
             }
+            if (currentScreen == Screen.DOCTOR_SERIALS || currentScreen == Screen.CARE_SERIALS) refreshCurrentScreen()
+        }
+        override fun onCancelled(error: DatabaseError) { }
+    }
 
-        val userRole =
-            TextView(this).apply {
+    private fun stopRealtimeListeners() {
+        if (!firebaseAvailable) return
+        serialListener?.let { rootRef.child("serials").child(todayKey()).removeEventListener(it) }
+        doctorListener?.let { rootRef.child("doctors").removeEventListener(it) }
+        careListener?.let { rootRef.child("careOfs").removeEventListener(it) }
+        serialListener = null
+        doctorListener = null
+        careListener = null
+    }
 
-                text =
-                    "Role: ${role.uppercase()}"
-
-                textSize = 16f
-
-                setTextColor(
-                    Color.WHITE
-                )
-            }
-
-        header.addView(logo)
-        header.addView(centerName)
-        header.addView(userRole)
-
-        navigationView.addHeaderView(
-            header
-        )
-
-        if (role == "admin") {
-
-            navigationView.menu.add(
-                "Admin Control Panel"
-            ).apply {
-
-                setIcon(
-                    android.R.drawable.ic_menu_manage
-                )
-
-                setOnMenuItemClickListener {
-
-                    drawerLayout.closeDrawer(
-                        Gravity.START
-                    )
-
-                    showAdminControlPanel()
-                    true
+    private fun loadLocalData() {
+        serials.clear()
+        val dateKey = todayKey()
+        for (key in pref.all.keys) {
+            if (!key.startsWith(LOCAL_SERIAL_PREFIX + dateKey + "_")) continue
+            val number = key.substringAfterLast("_").toIntOrNull() ?: continue
+            val parts = (pref.getString(key, "") ?: "").split("||")
+            if (parts.size >= 7) {
+                if (!parts[3].equals("Cancelled", true)) {
+                    serials.add(SerialRecord(key, number, dateKey, parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]))
                 }
             }
         }
-
-        val messageItem = navigationView.menu.add(
-            "💬  Message"
-        ).apply {
-            setIcon(android.R.drawable.ic_dialog_info)
-            setOnMenuItemClickListener {
-                drawerLayout.closeDrawer(Gravity.START)
-                showMessages()
-                true
-            }
+        serials.sortBy { it.number }
+        doctors.clear()
+        careOfs.clear()
+        for (key in pref.all.keys) {
+            if (key.startsWith("doctor_")) pref.getString(key, null)?.let { doctors.add(it) }
+            if (key.startsWith("care_")) pref.getString(key, null)?.let { careOfs.add(it) }
         }
+    }
 
-        messageItem.actionView = TextView(this).apply {
-            text = "MESSAGE"
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.WHITE)
+    // =========================================================
+    // PULL TO REFRESH
+    // =========================================================
+    private fun pullToRefresh(content: View, onRefresh: () -> Unit): SwipeRefreshLayout {
+        val swipe = SwipeRefreshLayout(this)
+        swipe.setColorSchemeColors(BLUE, TEAL, GREEN)
+        swipe.addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        swipe.setOnRefreshListener {
+            onRefresh()
+            swipe.postDelayed({ swipe.isRefreshing = false }, 450)
+        }
+        return swipe
+    }
+
+    private fun refreshCurrentScreen() {
+        if (currentUsername.isEmpty()) return
+        if (serialListener == null) startRealtimeListeners()
+        when (currentScreen) {
+            Screen.DASHBOARD -> showDashboard()
+            Screen.TOTAL -> showTotalSerial()
+            Screen.DOCTOR_SERIALS -> {
+                if (selectedDoctor.isNotEmpty()) {
+                    showFilteredSerials("ডাক্তার: $selectedDoctor", serials.filter { it.doctor == selectedDoctor })
+                } else {
+                    showDoctorWise()
+                }
+            }
+            Screen.CARE_SERIALS -> {
+                if (selectedCareOf.isNotEmpty()) {
+                    showFilteredSerials("কেয়ার অফ: $selectedCareOf", serials.filter { it.careOf == selectedCareOf })
+                } else {
+                    showCareWise()
+                }
+            }
+            Screen.ADD_SERIAL -> showAddSerial()
+            Screen.ADD_DOCTOR -> showAddDoctor()
+            Screen.ADD_CARE -> showAddCare()
+            Screen.REPORT -> showReport()
+            Screen.ADMIN -> showAdminPanel()
+            Screen.LOGIN -> showLogin()
+        }
+    }
+
+    // =========================================================
+    // UI HELPERS
+    // =========================================================
+    private fun label(text: String, size: Float, color: Int = DARK, bold: Boolean = false): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = size
+            setTextColor(color)
             gravity = Gravity.CENTER
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            background = roundedCardDrawable(Color.rgb(21, 101, 192), dp(18))
-            setOnClickListener {
-                drawerLayout.closeDrawer(Gravity.START)
-                showMessages()
-            }
-        }
-
-        // User Management is an Admin-only management area.
-        if (role == "admin") {
-            navigationView.menu.add(
-                "User Management"
-            ).apply {
-
-                setIcon(
-                    android.R.drawable.ic_menu_myplaces
-                )
-
-                setOnMenuItemClickListener {
-
-                    drawerLayout.closeDrawer(
-                        Gravity.START
-                    )
-
-                    showUserManagement()
-                    true
-                }
-            }
-        }
-
-        // Everyone may open the Notification screen, but only Admin sees
-        // the create button; Firestore rules enforce Admin-only writes.
-        navigationView.menu.add(
-            "Notifications"
-        ).apply {
-
-            setIcon(
-                android.R.drawable.ic_dialog_info
-            )
-
-            setOnMenuItemClickListener {
-
-                drawerLayout.closeDrawer(
-                    Gravity.START
-                )
-
-                showNotifications()
-                true
-            }
-        }
-
-        // Settings is an Admin-only configuration area.
-        if (role == "admin") {
-            navigationView.menu.add(
-                "Settings"
-            ).apply {
-
-                setIcon(
-                    android.R.drawable.ic_menu_preferences
-                )
-
-                setOnMenuItemClickListener {
-
-                    drawerLayout.closeDrawer(
-                        Gravity.START
-                    )
-
-                    showSettings()
-                    true
-                }
-            }
-        }
-
-        navigationView.menu.add(
-            "Logout"
-        ).apply {
-
-            setIcon(
-                android.R.drawable.ic_lock_power_off
-            )
-
-            setOnMenuItemClickListener {
-
-                drawerLayout.closeDrawer(
-                    Gravity.START
-                )
-
-                auth.signOut()
-
-                showLogin()
-
-                true
-            }
+            includeFontPadding = true
+            if (bold) setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            setPadding(4, 3, 4, 3)
         }
     }
+
+    private fun verticalContainer(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(14, 14, 14, 18)
+        setBackgroundColor(BG)
+    }
+
+    private fun cardLayout(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(12, 14, 12, 14)
+        background = background(WHITE, 17f, LIGHT_BORDER)
+        elevation = 3f
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(4, 4, 4, 4)
+        }
+    }
+
+    private fun background(color: Int, radius: Float = 17f, strokeColor: Int? = null) = android.graphics.drawable.GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = radius
+        if (strokeColor != null) setStroke(2, strokeColor)
+    }
+
+    private fun input(hint: String, password: Boolean = false): EditText = EditText(this).apply {
+        this.hint = hint
+        textSize = 17f
+        setTextColor(DARK)
+        setHintTextColor(Color.rgb(125, 130, 135))
+        setPadding(14, 0, 14, 0)
+        background = this@MainActivity.background(WHITE, 13f, TEAL)
+        inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_CLASS_TEXT
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56).apply { setMargins(6, 5, 6, 5) }
+    }
+
+    private fun careOfField(): Pair<EditText, LinearLayout> {
+        val edit = input("Care Of / অভিভাবকের নাম")
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        edit.layoutParams = LinearLayout.LayoutParams(0, 56, 1f).apply { setMargins(6, 5, 2, 5) }
+        row.addView(edit)
+
+        row.addView(smallButton("▼", TEAL) {
+            if (careOfs.isEmpty()) {
+                toast("আগে Care Of যোগ করুন")
+            } else {
+                val items = careOfs.distinct().sorted()
+                AlertDialog.Builder(this)
+                    .setTitle("Care Of নির্বাচন করুন")
+                    .setItems(items.toTypedArray()) { _, which ->
+                        edit.setText(items[which])
+                        edit.setSelection(edit.text.length)
+                    }.show()
+            }
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(52, 46).apply { setMargins(2, 5, 2, 5) }
+        })
+
+        row.addView(smallButton("＋", TEAL) {
+            showAddCareDialog(edit)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(52, 46).apply { setMargins(2, 5, 6, 5) }
+        })
+        return Pair(edit, row)
+    }
+
+    private fun showAddCareDialog(target: EditText? = null) {
+        val field = input("নতুন Care Of নাম")
+        AlertDialog.Builder(this)
+            .setTitle("Care Of যোগ করুন")
+            .setView(field)
+            .setNegativeButton("বাতিল", null)
+            .setPositiveButton("যোগ করুন") { _, _ ->
+                val value = field.text.toString().trim()
+                addNamedItem("careOfs", value) {
+                    target?.setText(value)
+                    target?.setSelection(target.text.length)
+                }
+            }.show()
+    }
+
+    private fun selectionInput(hint: String): TextView {
+        val t = label(hint, 16f, GRAY)
+        t.background = background(WHITE, 13f, TEAL)
+        t.setPadding(12, 0, 12, 0)
+        t.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 56).apply { setMargins(6, 5, 6, 5) }
+        t.setOnClickListener {
+            val source = if (hint.startsWith("Care")) careOfs else doctors
+            if (source.isEmpty()) {
+                toast(if (hint.startsWith("Care")) "আগে Care Of যোগ করুন" else "আগে ডাক্তার যোগ করুন")
+                return@setOnClickListener
+            }
+            AlertDialog.Builder(this)
+                .setTitle(if (hint.startsWith("Care")) "Care Of নির্বাচন করুন" else "ডাক্তার নির্বাচন করুন")
+                .setItems(source.sorted().toTypedArray()) { _, which ->
+                    t.text = source.sorted()[which]
+                    t.setTextColor(DARK)
+                    t.tag = source.sorted()[which]
+                }.show()
+        }
+        return t
+    }
+
+    private fun actionButton(text: String, color: Int = BLUE, height: Int = 56, onClick: () -> Unit): TextView {
+        return label(text, 15.5f, WHITE, true).apply {
+            background = this@MainActivity.background(color, 13f)
+            setPadding(10, 0, 10, 0)
+            elevation = 2f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height).apply { setMargins(6, 4, 6, 4) }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun smallButton(text: String, color: Int, onClick: () -> Unit): TextView {
+        return label(text, 12.5f, WHITE, true).apply {
+            background = this@MainActivity.background(color, 10f)
+            layoutParams = LinearLayout.LayoutParams(0, 42, 1f).apply { setMargins(3, 2, 3, 2) }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun tabButton(text: String, color: Int, onClick: () -> Unit): TextView {
+        return label(text, 14f, WHITE, true).apply {
+            background = this@MainActivity.background(color, 13f)
+            layoutParams = LinearLayout.LayoutParams(0, 68, 1f).apply { setMargins(4, 3, 4, 3) }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun statCard(icon: String, title: String, value: String, color: Int): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(6, 9, 6, 9)
+            background = this@MainActivity.background(WHITE, 15f, LIGHT_BORDER)
+            elevation = 2f
+            layoutParams = LinearLayout.LayoutParams(0, 108, 1f).apply { setMargins(3, 3, 3, 3) }
+            addView(label(icon, 27f, color, true))
+            addView(label(title, 14.5f, DARK, true))
+            addView(label(value, 16f, color, true))
+        }
+    }
+
+    private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun space(height: Int) = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, height) }
+
+    // =========================================================
+    // UTILITY
+    // =========================================================
+    private fun canModifySerials(): Boolean = currentRole.equals("Operator", true) || currentRole.equals("Admin", true)
+
+    private fun statusBangla(status: String): String = when (status) {
+        "Waiting" -> "অপেক্ষমাণ"
+        "Present" -> "উপস্থিত"
+        "Completed" -> "সম্পন্ন"
+        "Cancelled" -> "বাতিল"
+        else -> status
+    }
+
+    private fun statusColor(status: String): Int = when (status) {
+        "Waiting" -> RED
+        "Present" -> Color.rgb(218, 170, 20)
+        "Completed" -> GREEN
+        "Cancelled" -> RED
+        else -> BLUE
+    }
+
+    private fun todayKey(): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+
+    private fun currentTime24(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+
+    private fun hashPassword(password: String): String = try {
+        MessageDigest.getInstance("SHA-256").digest(password.toByteArray()).joinToString("") { "%02x".format(it) }
+    } catch (_: Exception) { password }
+
+    private fun snapshotToSerialRecord(snapshot: DataSnapshot, dateKey: String): SerialRecord? {
+        val number = snapshot.child("number").getValue(Int::class.java) ?: return null
+        return SerialRecord(
+            id = snapshot.key ?: number.toString(),
+            number = number,
+            dateKey = dateKey,
+            patient = snapshot.child("patient").getValue(String::class.java) ?: "",
+            careOf = snapshot.child("careOf").getValue(String::class.java) ?: "",
+            doctor = snapshot.child("doctor").getValue(String::class.java) ?: "",
+            status = snapshot.child("status").getValue(String::class.java) ?: "Waiting",
+            createdBy = snapshot.child("createdBy").getValue(String::class.java) ?: "",
+            createdRole = snapshot.child("createdRole").getValue(String::class.java) ?: "",
+            createdAt = snapshot.child("createdAt").getValue(String::class.java) ?: "",
+            completedBy = snapshot.child("completedBy").getValue(String::class.java) ?: "",
+            completedAt = snapshot.child("completedAt").getValue(String::class.java) ?: ""
+        )
+    }
+
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+
+    private fun logout() {
+        stopRealtimeListeners()
+        pref.edit().clear().apply()
+        currentUsername = ""
+        currentRole = ""
+        selectedDoctor = ""
+        selectedCareOf = ""
+        toast("Logout সফল হয়েছে")
+        showLogin()
+    }
+
+    // =========================================================
+    // ANDROID BACK BUTTON
+    // No dashboard "ফিরে যান" buttons are needed.
+    // =========================================================
+    override fun onBackPressed() {
+        when (currentScreen) {
+            Screen.LOGIN -> super.onBackPressed()
+            Screen.DASHBOARD -> super.onBackPressed()
+            Screen.TOTAL -> showDashboard()
+            Screen.DOCTOR_SERIALS, Screen.CARE_SERIALS -> showTotalSerial()
+            Screen.ADD_SERIAL, Screen.ADD_DOCTOR, Screen.ADD_CARE, Screen.REPORT, Screen.ADMIN -> showDashboard()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (currentUsername.isNotEmpty()) startRealtimeListeners()
+    }
+
+    override fun onPause() {
+        stopRealtimeListeners()
+        super.onPause()
+    }
+
     override fun onDestroy() {
-        clearActiveListeners()
+        stopRealtimeListeners()
         super.onDestroy()
     }
-
 }
