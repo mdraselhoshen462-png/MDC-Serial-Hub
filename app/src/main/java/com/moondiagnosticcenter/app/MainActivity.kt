@@ -4,12 +4,6 @@ import android.app.Activity
 import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
-import android.content.ContentValues
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -23,11 +17,8 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.database.MutableData
 import com.google.firebase.database.Transaction
-import java.io.File
-import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -76,7 +67,7 @@ class MainActivity : Activity() {
 
     private enum class Screen {
         LOGIN, DASHBOARD, TOTAL, DOCTOR_SERIALS, CARE_SERIALS,
-        ADD_SERIAL, ADD_DOCTOR, ADD_CARE, REPORT, ADMIN
+        ADD_SERIAL, ADD_DOCTOR, ADD_CARE, ADMIN
     }
 
     private var currentScreen = Screen.LOGIN
@@ -268,8 +259,6 @@ class MainActivity : Activity() {
         root.addView(actionButton("＋   অ্যাড সিরিয়াল", BLUE) { showAddSerial() })
         root.addView(actionButton("👨‍⚕️   অ্যাড ডাক্তার", TEAL) { showAddDoctor() })
         root.addView(actionButton("👤   অ্যাড কেয়ার অফ", TEAL) { showAddCare() })
-
-        root.addView(actionButton("📄   রিপোর্ট / PDF", PURPLE) { showReport() })
 
         if (currentRole.equals("Admin", true)) {
             root.addView(space(6))
@@ -749,258 +738,6 @@ class MainActivity : Activity() {
         rootRef.child("serials").child(r.dateKey).child(r.id).removeValue()
             .addOnSuccessListener { toast("সিরিয়াল মুছে ফেলা হয়েছে") }
             .addOnFailureListener { toast("ডিলিট করা যায়নি") }
-    }
-
-    // =========================================================
-    // REPORTS / PDF
-    // =========================================================
-    private fun showReport() {
-        currentScreen = Screen.REPORT
-        val root = verticalContainer()
-        root.setPadding(12, 16, 12, 20)
-
-        root.addView(label("📄 রিপোর্ট / PDF", 25f, DARK_BLUE, true))
-        root.addView(label("একদিনের রিপোর্ট অথবা নির্বাচিত মাসের ১–৩১ দিনের পূর্ণ রিপোর্ট তৈরি করুন", 13f, GRAY))
-        root.addView(space(10))
-
-        val dateCal = Calendar.getInstance()
-        var selectedDateKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(dateCal.time)
-        var selectedDateText = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(dateCal.time)
-
-        val dateCard = cardLayout()
-        dateCard.addView(label("একদিনের রিপোর্ট", 19f, DARK_BLUE, true))
-        dateCard.addView(space(5))
-        val dateButton = actionButton("📅   তারিখ: $selectedDateText", BLUE, 54) {
-            DatePickerDialog(
-                this,
-                { _, y, m, d ->
-                    dateCal.set(y, m, d)
-                    selectedDateKey = SimpleDateFormat("yyyyMMdd", Locale.US).format(dateCal.time)
-                    selectedDateText = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(dateCal.time)
-                    dateButton.text = "📅   তারিখ: $selectedDateText"
-                },
-                dateCal.get(Calendar.YEAR),
-                dateCal.get(Calendar.MONTH),
-                dateCal.get(Calendar.DAY_OF_MONTH)
-            ).show()
-        }
-        dateCard.addView(dateButton)
-        dateCard.addView(actionButton("⬇   একদিনের PDF ডাউনলোড", GREEN, 56) {
-            fetchReportDays(listOf(selectedDateKey)) { days ->
-                createAndDownloadPdf("MDC_Report_$selectedDateKey.pdf", "মুন ডায়াগনস্টিক সেন্টার — $selectedDateText", days)
-            }
-        })
-        root.addView(dateCard)
-        root.addView(space(10))
-
-        val monthCal = Calendar.getInstance()
-        var monthYear = monthCal.get(Calendar.YEAR)
-        var monthIndex = monthCal.get(Calendar.MONTH)
-        var monthText = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(monthCal.time)
-
-        val monthCard = cardLayout()
-        monthCard.addView(label("পুরো মাসের রিপোর্ট", 19f, DARK_BLUE, true))
-        monthCard.addView(label("নির্বাচিত মাসের ১ তারিখ থেকে মাসের শেষ দিন পর্যন্ত সব দিনের রিপোর্ট এক PDF-এ থাকবে", 12.5f, GRAY))
-        monthCard.addView(space(5))
-        val monthButton = actionButton("🗓   মাস: $monthText", TEAL, 54) {
-            DatePickerDialog(
-                this,
-                { y, m, d ->
-                    monthYear = y
-                    monthIndex = m
-                    monthCal.set(y, m, 1)
-                    monthText = SimpleDateFormat("MMMM yyyy", Locale.ENGLISH).format(monthCal.time)
-                    monthButton.text = "🗓   মাস: $monthText"
-                },
-                monthYear, monthIndex, 1
-            ).show()
-        }
-        monthCard.addView(monthButton)
-        monthCard.addView(actionButton("⬇   পুরো মাসের PDF ডাউনলোড", PURPLE, 58) {
-            val daysInMonth = monthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            val keys = (1..daysInMonth).map { day ->
-                String.format(Locale.US, "%04d%02d%02d", monthYear, monthIndex + 1, day)
-            }
-            fetchReportDays(keys) { days ->
-                val fileName = "MDC_Report_${String.format(Locale.US, "%04d-%02d", monthYear, monthIndex + 1)}.pdf"
-                createAndDownloadPdf("$fileName", "মুন ডায়াগনস্টিক সেন্টার — $monthText", days)
-            }
-        })
-        root.addView(monthCard)
-        root.addView(space(10))
-        root.addView(label("নোট: PDF ফোনের Downloads ফোল্ডারে সংরক্ষণ হবে।", 12.5f, GRAY))
-
-        setContentView(pullToRefresh(root) { refreshCurrentScreen() })
-    }
-
-    private data class ReportDay(val dateKey: String, val records: List<SerialRecord>)
-
-    private fun fetchReportDays(dateKeys: List<String>, onDone: (List<ReportDay>) -> Unit) {
-        if (dateKeys.isEmpty()) {
-            onDone(emptyList())
-            return
-        }
-        if (!firebaseAvailable) {
-            val result = dateKeys.map { key -> ReportDay(key, readLocalReportRecords(key)) }
-            onDone(result)
-            return
-        }
-
-        val result = arrayOfNulls<ReportDay>(dateKeys.size)
-        var remaining = dateKeys.size
-        dateKeys.forEachIndexed { index, key ->
-            rootRef.child("serials").child(key).get()
-                .addOnSuccessListener { snapshot ->
-                    val records = snapshot.children.mapNotNull { snapshotToSerialRecord(it, key) }
-                        .sortedBy { it.number }
-                    result[index] = ReportDay(key, records)
-                    remaining--
-                    if (remaining == 0) onDone(result.filterNotNull())
-                }
-                .addOnFailureListener {
-                    toast("$key এর রিপোর্ট পড়া যায়নি")
-                    result[index] = ReportDay(key, emptyList())
-                    remaining--
-                    if (remaining == 0) onDone(result.filterNotNull())
-                }
-        }
-    }
-
-    private fun readLocalReportRecords(dateKey: String): List<SerialRecord> {
-        val result = mutableListOf<SerialRecord>()
-        for (key in pref.all.keys) {
-            if (!key.startsWith(LOCAL_SERIAL_PREFIX + dateKey + "_")) continue
-            val number = key.substringAfterLast("_").toIntOrNull() ?: continue
-            val parts = (pref.getString(key, "") ?: "").split("||")
-            if (parts.size >= 7) {
-                result.add(
-                    SerialRecord(
-                        key, number, dateKey, parts[0], parts[1], parts[2], parts[3],
-                        parts[4], parts[5], parts[6],
-                        parts.getOrElse(7) { "" }, parts.getOrElse(8) { "" }
-                    )
-                )
-            }
-        }
-        return result.sortedBy { it.number }
-    }
-
-    private fun createAndDownloadPdf(fileName: String, title: String, days: List<ReportDay>) {
-        try {
-            val document = PdfDocument()
-            val pageWidth = 595
-            val pageHeight = 842
-            val left = 32f
-            val right = 563f
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL) }
-            val bold = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create("sans-serif", Typeface.BOLD) }
-            var pageNumber = 0
-            var page: PdfDocument.Page? = null
-            var canvas: android.graphics.Canvas? = null
-            var y = 0f
-
-            fun startPage() {
-                pageNumber++
-                page = document.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create())
-                canvas = page!!.canvas
-                canvas!!.drawColor(Color.WHITE)
-                y = 42f
-            }
-            fun finishPage() {
-                page?.let { document.finishPage(it) }
-                page = null
-                canvas = null
-            }
-            fun ensureSpace(height: Float) {
-                if (page == null) startPage()
-                if (y + height > 790f) {
-                    finishPage()
-                    startPage()
-                }
-            }
-            fun drawText(text: String, size: Float, isBold: Boolean = false, color: Int = Color.BLACK, gap: Float = 5f) {
-                ensureSpace(size + gap + 2f)
-                val p = if (isBold) bold else paint
-                p.textSize = size
-                p.color = color
-                canvas!!.drawText(text, left, y, p)
-                y += size + gap
-            }
-
-            startPage()
-            drawText(title, 18f, true, DARK_BLUE, 8f)
-            drawText("প্রস্তুতকারক: $currentUsername • $currentRole", 10f, false, GRAY, 12f)
-
-            if (days.isEmpty()) {
-                drawText("কোনো রিপোর্ট ডাটা পাওয়া যায়নি।", 13f, false, GRAY)
-            }
-
-            days.forEach { day ->
-                val displayDate = formatReportDate(day.dateKey)
-                ensureSpace(45f)
-                drawText("তারিখ: $displayDate", 14f, true, TEAL, 5f)
-                val total = day.records.size
-                val waiting = day.records.count { it.status.equals("Waiting", true) }
-                val present = day.records.count { it.status.equals("Present", true) }
-                val completed = day.records.count { it.status.equals("Completed", true) }
-                drawText("মোট: $total • অপেক্ষমাণ: $waiting • উপস্থিত: $present • সম্পন্ন: $completed", 9.5f, false, DARK, 7f)
-
-                if (day.records.isEmpty()) {
-                    drawText("কোনো সিরিয়াল নেই", 10f, false, GRAY, 7f)
-                } else {
-                    day.records.sortedBy { it.number }.forEach { r ->
-                        ensureSpace(48f)
-                        val line = "#${r.number}  ${r.patient}  |  ${r.doctor}"
-                        drawText(line, 9.5f, true, DARK, 3f)
-                        drawText("Care Of: ${if (r.careOf.isEmpty()) "—" else r.careOf}  |  ${statusBangla(r.status)}  |  ${r.createdBy}", 8.5f, false, GRAY, 3f)
-                    }
-                }
-                y += 6f
-            }
-
-            if (page != null) finishPage()
-            val bytesFile = File(cacheDir, fileName)
-            FileOutputStream(bytesFile).use { document.writeTo(it) }
-            document.close()
-            savePdfToDownloads(bytesFile, fileName)
-        } catch (e: Exception) {
-            toast("PDF তৈরি করা যায়নি: ${e.message ?: "অজানা সমস্যা"}")
-        }
-    }
-
-    private fun formatReportDate(dateKey: String): String = try {
-        val d = SimpleDateFormat("yyyyMMdd", Locale.US).parse(dateKey)
-        SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(d ?: Date())
-    } catch (_: Exception) { dateKey }
-
-    private fun savePdfToDownloads(file: java.io.File, fileName: String) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Moon Diagnostic Center")
-                    put(MediaStore.Downloads.IS_PENDING, 1)
-                }
-                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (uri == null) {
-                    toast("PDF Downloads-এ সংরক্ষণ করা যায়নি")
-                    return
-                }
-                contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
-                values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
-                contentResolver.update(uri, values, null, null)
-                toast("PDF Downloads/Moon Diagnostic Center-এ সংরক্ষণ হয়েছে")
-            } else {
-                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).apply { mkdirs() }
-                val target = File(dir, fileName)
-                file.copyTo(target, overwrite = true)
-                toast("PDF Downloads ফোল্ডারে সংরক্ষণ হয়েছে")
-            }
-        } catch (e: Exception) {
-            toast("PDF সংরক্ষণ করা যায়নি: ${e.message ?: "অজানা সমস্যা"}")
-        }
     }
 
     // =========================================================
@@ -1487,7 +1224,6 @@ class MainActivity : Activity() {
             Screen.ADD_SERIAL -> showAddSerial()
             Screen.ADD_DOCTOR -> showAddDoctor()
             Screen.ADD_CARE -> showAddCare()
-            Screen.REPORT -> showReport()
             Screen.ADMIN -> showAdminPanel()
             Screen.LOGIN -> showLogin()
         }
@@ -1725,7 +1461,7 @@ class MainActivity : Activity() {
             Screen.DASHBOARD -> super.onBackPressed()
             Screen.TOTAL -> showDashboard()
             Screen.DOCTOR_SERIALS, Screen.CARE_SERIALS -> showTotalSerial()
-            Screen.ADD_SERIAL, Screen.ADD_DOCTOR, Screen.ADD_CARE, Screen.REPORT, Screen.ADMIN -> showDashboard()
+            Screen.ADD_SERIAL, Screen.ADD_DOCTOR, Screen.ADD_CARE, Screen.ADMIN -> showDashboard()
         }
     }
 
