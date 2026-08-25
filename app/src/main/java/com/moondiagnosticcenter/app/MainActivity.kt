@@ -6132,7 +6132,7 @@ card.addView(buttonRow)
             setPadding(0, dp(8), 0, dp(5))
         }
         container.addView(dateLabel)
-        var editedDate = document.getString("createdDate") ?: todayKey()
+        var editedDate = document.getString("createdDate") ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val dateButton = Button(this).apply {
             text = formatDisplayDate(editedDate)
             setAllCaps(false)
