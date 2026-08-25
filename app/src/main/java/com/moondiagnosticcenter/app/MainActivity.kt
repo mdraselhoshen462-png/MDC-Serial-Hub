@@ -1804,6 +1804,48 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
+        // =====================================================
+        // CARE OF DROPDOWN ARROW
+        // =====================================================
+
+        val careOfArrowButton =
+            Button(this).apply {
+
+                text = "▼"
+                textSize = 18f
+                setAllCaps(false)
+                setTextColor(primaryColor)
+                gravity = Gravity.CENTER
+                background = roundedCardDrawable(
+                    Color.WHITE,
+                    dp(14)
+                )
+                contentDescription =
+                    "Care Of নির্বাচন করুন"
+                setPadding(0, 0, 0, 0)
+
+                setOnClickListener {
+                    // Show every active Care Of without requiring typing.
+                    careSpinner.requestFocus()
+                    careSpinner.showDropDown()
+                }
+            }
+
+        careRow.addView(
+            careOfArrowButton,
+            LinearLayout.LayoutParams(
+                dp(58),
+                dp(60)
+            ).apply {
+                setMargins(
+                    0,
+                    0,
+                    dp(8),
+                    dp(14)
+                )
+            }
+        )
+
         val plusButton =
             Button(this).apply {
 
