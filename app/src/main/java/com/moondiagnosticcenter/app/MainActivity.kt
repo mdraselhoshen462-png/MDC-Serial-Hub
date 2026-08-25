@@ -2558,6 +2558,31 @@ class MainActivity : AppCompatActivity() {
                         selected.toString(),
                         false
                     )
+                    input.error = null
+                }
+
+                // If the user types an existing Care Of name exactly, treat it as a
+                // valid selection as well. Otherwise the mandatory check in
+                // saveNewSerial() will stop the serial from being created.
+                input.setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        val typed = normalizeCareOfValue(input.text.toString().substringBefore("\n"))
+                        val match = careOfOptions.firstOrNull {
+                            normalizeCareOfValue(it.name) == typed
+                        }
+                        if (match != null) {
+                            selectedCareOfId = match.id
+                            selectedCareOfName = match.name
+                            selectedCareOfAddress = match.address
+                            input.setText(match.toString(), false)
+                            input.error = null
+                        } else if (typed.isNotBlank()) {
+                            selectedCareOfId = ""
+                            selectedCareOfName = ""
+                            selectedCareOfAddress = ""
+                            input.error = "Arrow থেকে একটি Care Of নির্বাচন করুন"
+                        }
+                    }
                 }
             }
             .addOnFailureListener { error ->
@@ -3031,6 +3056,19 @@ class MainActivity : AppCompatActivity() {
                 Toast.LENGTH_LONG
             ).show()
 
+            return
+        }
+
+        // Care Of is mandatory for every role (Admin, Operator and User).
+        // Typing/searching alone is not enough; an existing Care Of must be selected.
+        if (selectedCareOfId.isBlank()) {
+            addSerialCareOfSpinner?.error = "Care Of নির্বাচন করা বাধ্যতামূলক"
+            addSerialCareOfSpinner?.requestFocus()
+            Toast.makeText(
+                this,
+                "সিরিয়াল দেওয়ার আগে Care Of নির্বাচন করুন",
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
 
@@ -5821,34 +5859,16 @@ class MainActivity : AppCompatActivity() {
             currentUid == creatorUid ||
                     currentRole == "admin"
 
-        val vipButton =
-            createSmallButton(
-                if (isVip) "★ VIP" else "☆ VIP"
-            )
-
-        vipButton.setOnClickListener {
-
-            db.collection("serials")
-                .document(document.id)
-                .update("patientVip", !isVip)
-                .addOnSuccessListener {
-                    Toast.makeText(
-                        this,
-                        if (!isVip) "রোগীকে VIP করা হয়েছে" else "VIP বাতিল করা হয়েছে",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    showTotalSerial()
-                }
-                .addOnFailureListener { error ->
-                    Toast.makeText(
-                        this,
-                        "VIP পরিবর্তন করা যায়নি: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+        if (isVip) {
+            val vipLabel = TextView(this).apply {
+                text = "⭐ VIP"
+                textSize = 16f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.rgb(190, 120, 0))
+                setPadding(0, dp(6), 0, dp(6))
+            }
+            buttonRow.addView(vipLabel)
         }
-
-        buttonRow.addView(vipButton)
 
         val statusButton =
             createSmallButton(
@@ -6000,7 +6020,6 @@ card.addView(buttonRow)
     private fun showEditSerialDialog(
         document: DocumentSnapshot
     ) {
-
         val uid = auth.currentUser?.uid ?: ""
         val owner = document.getString("createdByUid") ?: ""
         if (currentRole != "admin" && uid != owner) {
@@ -6008,140 +6027,178 @@ card.addView(buttonRow)
             return
         }
 
-        val container =
-            LinearLayout(this).apply {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(5), dp(20), dp(5))
+        }
 
-                orientation =
-                    LinearLayout.VERTICAL
+        val patientInput = createFormInput("Patient Name")
+        patientInput.setText(document.getString("patient") ?: "")
+        container.addView(patientInput, formParams())
 
-                setPadding(
-                    dp(20),
-                    dp(5),
-                    dp(20),
-                    0
-                )
+        val doctorLabel = TextView(this).apply {
+            text = "ডাক্তার নির্বাচন করুন"
+            textSize = 16f
+            setTextColor(darkText)
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        container.addView(doctorLabel)
+
+        val doctorSpinner = Spinner(this)
+        val doctorEntries = mutableListOf<String>()
+        val doctorEntryIds = mutableListOf<String>()
+        doctorEntries.add("বর্তমান ডাক্তার")
+        doctorEntryIds.add(document.getString("doctorId") ?: "")
+        for (i in doctorNames.indices) {
+            if (doctorNames[i].isNotBlank() && !doctorEntryIds.contains(doctorIds.getOrNull(i) ?: "")) {
+                doctorEntries.add(doctorNames[i])
+                doctorEntryIds.add(doctorIds.getOrNull(i) ?: "")
             }
+        }
+        val currentDoctorId = document.getString("doctorId") ?: ""
+        val currentDoctorName = document.getString("doctorName") ?: document.getString("doctor") ?: ""
+        if (currentDoctorName.isNotBlank() && doctorEntries[0] == "বর্তমান ডাক্তার") doctorEntries[0] = currentDoctorName
+        doctorSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, doctorEntries)
+        var editedDoctorId = currentDoctorId
+        var editedDoctorName = currentDoctorName
+        val initialDoctorIndex = doctorEntryIds.indexOf(currentDoctorId).coerceAtLeast(0)
+        doctorSpinner.setSelection(initialDoctorIndex)
+        doctorSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                editedDoctorId = doctorEntryIds.getOrNull(position).orEmpty()
+                editedDoctorName = doctorEntries.getOrNull(position).orEmpty()
+            }
+        }
+        container.addView(doctorSpinner, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
 
-        val patientInput =
-            createFormInput(
-                "Patient Name"
-            )
+        val careLabel = TextView(this).apply {
+            text = "কেয়ার অফ নির্বাচন করুন"
+            textSize = 16f
+            setTextColor(darkText)
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        container.addView(careLabel)
 
-        patientInput.setText(
-            document.getString(
-                "patient"
-            ) ?: ""
-        )
+        val careInput = AutoCompleteTextView(this).apply {
+            hint = "কেয়ার অফের নাম লিখুন / নির্বাচন করুন"
+            threshold = 0
+            textSize = 17f
+            setSingleLine(true)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = roundedCardDrawable(Color.WHITE, dp(12))
+        }
+        val editCareOptions = careOfOptions.toList()
+        val careAdapter = object : ArrayAdapter<CareOfOption>(
+            this,
+            android.R.layout.simple_list_item_1,
+            editCareOptions.toMutableList()
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val view = super.getView(position, convertView, parent) as TextView
+                val option = getItem(position)
+                view.text = if (option?.address.isNullOrBlank()) option?.name ?: "" else "${option?.name}\n${option?.address}"
+                view.setSingleLine(false)
+                view.maxLines = 3
+                view.setPadding(dp(14), dp(10), dp(14), dp(10))
+                view.textSize = 16f
+                return view
+            }
+        }
+        careInput.setAdapter(careAdapter)
+        val currentCareId = document.getString("careOfId") ?: ""
+        val currentCareName = document.getString("careOfName") ?: document.getString("careOf") ?: ""
+        val currentCareAddress = document.getString("careOfAddress") ?: ""
+        var editedCareId = currentCareId
+        var editedCareName = currentCareName
+        var editedCareAddress = currentCareAddress
+        val currentCare = editCareOptions.firstOrNull { it.id == currentCareId }
+        careInput.setText((currentCare ?: CareOfOption(currentCareId, currentCareName, currentCareAddress)).toString(), false)
+        careInput.setOnClickListener { careInput.showDropDown() }
+        careInput.setOnItemClickListener { parent, _, position, _ ->
+            val selected = parent.getItemAtPosition(position) as? CareOfOption ?: return@setOnItemClickListener
+            editedCareId = selected.id
+            editedCareName = selected.name
+            editedCareAddress = selected.address
+            careInput.setText(selected.toString(), false)
+            careInput.error = null
+        }
+        container.addView(careInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
 
-        val descriptionInput =
-            createFormInput(
-                "Description"
-            )
+        val dateLabel = TextView(this).apply {
+            text = "তারিখ নির্বাচন করুন"
+            textSize = 16f
+            setTextColor(darkText)
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        container.addView(dateLabel)
+        var editedDate = document.getString("createdDate") ?: todayKey()
+        val dateButton = Button(this).apply {
+            text = formatDisplayDate(editedDate)
+            setAllCaps(false)
+            textSize = 17f
+            setOnClickListener {
+                val parts = editedDate.split("-")
+                val y = parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
+                val m = (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1
+                val d = parts.getOrNull(2)?.toIntOrNull() ?: 1
+                DatePickerDialog(this@MainActivity, { _, year, month, day ->
+                    editedDate = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
+                    text = formatDisplayDate(editedDate)
+                }, y, m, d).show()
+            }
+        }
+        container.addView(dateButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
 
+        val descriptionInput = createFormInput("Description")
         descriptionInput.setSingleLine(false)
         descriptionInput.minLines = 4
         descriptionInput.gravity = Gravity.TOP
+        descriptionInput.setText(document.getString("description") ?: "")
+        container.addView(descriptionInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(110)))
 
-        descriptionInput.setText(
-            document.getString(
-                "description"
-            ) ?: ""
-        )
-
-        val vipCheck =
-            CheckBox(this).apply {
-
-                text =
-                    "⭐ VIP Patient"
-
-                textSize = 17f
-
-                isChecked =
-                    document.getBoolean(
-                        "patientVip"
-                    ) ?: false
-            }
-
-        container.addView(
-            patientInput,
-            formParams()
-        )
-
-        container.addView(
-            vipCheck,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(55)
-            )
-        )
-
-        container.addView(
-            descriptionInput,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(110)
-            )
-        )
+        val vipCheck = CheckBox(this).apply {
+            text = "⭐ VIP Patient"
+            textSize = 17f
+            isChecked = document.getBoolean("patientVip") ?: false
+        }
+        container.addView(vipCheck, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(55)))
 
         AlertDialog.Builder(this)
-            .setTitle(
-                "Edit Serial"
-            )
+            .setTitle("সম্পূর্ণ Serial Edit")
             .setView(container)
-            .setNegativeButton(
-                "Cancel",
-                null
-            )
-            .setPositiveButton(
-                "Save"
-            ) { _: DialogInterface, _: Int ->
-
-                val newPatient =
-                    patientInput.text.toString().trim()
-
-                val newDescription =
-                    descriptionInput.text.toString().trim()
-
-                if (
-                    newPatient.isEmpty()
-                ) {
-
-                    Toast.makeText(
-                        this,
-                        "Patient Name দিন",
-                        Toast.LENGTH_SHORT
-                    ).show()
-
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val newPatient = patientInput.text.toString().trim()
+                if (newPatient.isEmpty()) {
+                    Toast.makeText(this, "Patient Name দিন", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-
-                db.collection("serials")
-                    .document(document.id)
-                    .update(
-                        mapOf(
-                            "patient" to newPatient,
-                            "description" to newDescription,
-                            "patientVip" to
-                                    vipCheck.isChecked
-                        )
-                    )
-                    .addOnSuccessListener {
-
-                        Toast.makeText(
-                            this,
-                            "Serial আপডেট হয়েছে",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                    }
-                    .addOnFailureListener { error ->
-
-                        Toast.makeText(
-                            this,
-                            "Update ব্যর্থ: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                if (editedDoctorId.isBlank() || editedDoctorName.isBlank()) {
+                    Toast.makeText(this, "Doctor নির্বাচন করুন", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (editedCareId.isBlank() || editedCareName.isBlank()) {
+                    Toast.makeText(this, "Care Of নির্বাচন করুন", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val updates = mapOf<String, Any>(
+                    "patient" to newPatient,
+                    "doctorId" to editedDoctorId,
+                    "doctorName" to editedDoctorName,
+                    "careOfId" to editedCareId,
+                    "careOfName" to editedCareName,
+                    "careOfAddress" to editedCareAddress,
+                    "createdDate" to editedDate,
+                    "description" to descriptionInput.text.toString().trim(),
+                    "patientVip" to vipCheck.isChecked,
+                    "editedByUid" to (auth.currentUser?.uid ?: ""),
+                    "editedByName" to currentUserDisplayName,
+                    "editedAt" to FieldValue.serverTimestamp()
+                )
+                db.collection("serials").document(document.id).update(updates)
+                    .addOnSuccessListener { Toast.makeText(this, "Serial-এর সম্পূর্ণ তথ্য আপডেট হয়েছে", Toast.LENGTH_LONG).show() }
+                    .addOnFailureListener { error -> Toast.makeText(this, "Update ব্যর্থ: ${error.message}", Toast.LENGTH_LONG).show() }
             }
             .show()
     }
