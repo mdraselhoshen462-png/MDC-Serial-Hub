@@ -1749,7 +1749,7 @@ class MainActivity : AppCompatActivity() {
 
         addFormLabel(
             content,
-            "কেয়ার অফ"
+            "কেয়ার অফ *"
         )
 
         val careRow =
@@ -2558,31 +2558,6 @@ class MainActivity : AppCompatActivity() {
                         selected.toString(),
                         false
                     )
-                    input.error = null
-                }
-
-                // If the user types an existing Care Of name exactly, treat it as a
-                // valid selection as well. Otherwise the mandatory check in
-                // saveNewSerial() will stop the serial from being created.
-                input.setOnFocusChangeListener { _, hasFocus ->
-                    if (!hasFocus) {
-                        val typed = normalizeCareOfValue(input.text.toString().substringBefore("\n"))
-                        val match = careOfOptions.firstOrNull {
-                            normalizeCareOfValue(it.name) == typed
-                        }
-                        if (match != null) {
-                            selectedCareOfId = match.id
-                            selectedCareOfName = match.name
-                            selectedCareOfAddress = match.address
-                            input.setText(match.toString(), false)
-                            input.error = null
-                        } else if (typed.isNotBlank()) {
-                            selectedCareOfId = ""
-                            selectedCareOfName = ""
-                            selectedCareOfAddress = ""
-                            input.error = "Arrow থেকে একটি Care Of নির্বাচন করুন"
-                        }
-                    }
                 }
             }
             .addOnFailureListener { error ->
@@ -3059,16 +3034,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Care Of is mandatory for every role (Admin, Operator and User).
-        // Typing/searching alone is not enough; an existing Care Of must be selected.
-        if (selectedCareOfId.isBlank()) {
-            addSerialCareOfSpinner?.error = "Care Of নির্বাচন করা বাধ্যতামূলক"
-            addSerialCareOfSpinner?.requestFocus()
+        // Care Of is mandatory for every role (User / Operator / Admin).
+        // Typing text alone is not enough; an actual Care Of record must be selected.
+        if (selectedCareOfId.isBlank() || selectedCareOfName.isBlank()) {
             Toast.makeText(
                 this,
-                "সিরিয়াল দেওয়ার আগে Care Of নির্বাচন করুন",
+                "Care Of নির্বাচন করা বাধ্যতামূলক। Arrow থেকে নির্বাচন করুন বা নতুন Care Of তৈরি করুন।",
                 Toast.LENGTH_LONG
             ).show()
+            addSerialCareOfSpinner?.requestFocus()
+            addSerialCareOfSpinner?.showDropDown()
             return
         }
 
@@ -5859,17 +5834,6 @@ class MainActivity : AppCompatActivity() {
             currentUid == creatorUid ||
                     currentRole == "admin"
 
-        if (isVip) {
-            val vipLabel = TextView(this).apply {
-                text = "⭐ VIP"
-                textSize = 16f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.rgb(190, 120, 0))
-                setPadding(0, dp(6), 0, dp(6))
-            }
-            buttonRow.addView(vipLabel)
-        }
-
         val statusButton =
             createSmallButton(
                 "📌 $status"
@@ -6020,6 +5984,7 @@ card.addView(buttonRow)
     private fun showEditSerialDialog(
         document: DocumentSnapshot
     ) {
+
         val uid = auth.currentUser?.uid ?: ""
         val owner = document.getString("createdByUid") ?: ""
         if (currentRole != "admin" && uid != owner) {
@@ -6029,176 +5994,192 @@ card.addView(buttonRow)
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(5), dp(20), dp(5))
+            setPadding(dp(20), dp(5), dp(20), 0)
         }
 
         val patientInput = createFormInput("Patient Name")
         patientInput.setText(document.getString("patient") ?: "")
         container.addView(patientInput, formParams())
 
-        val doctorLabel = TextView(this).apply {
-            text = "ডাক্তার নির্বাচন করুন"
-            textSize = 16f
-            setTextColor(darkText)
-            setPadding(0, dp(8), 0, dp(5))
-        }
-        container.addView(doctorLabel)
-
+        // Doctor selector
+        addFormLabel(container, "ডাক্তার *")
         val doctorSpinner = Spinner(this)
-        val doctorEntries = mutableListOf<String>()
-        val doctorEntryIds = mutableListOf<String>()
-        doctorEntries.add("বর্তমান ডাক্তার")
-        doctorEntryIds.add(document.getString("doctorId") ?: "")
-        for (i in doctorNames.indices) {
-            if (doctorNames[i].isNotBlank() && !doctorEntryIds.contains(doctorIds.getOrNull(i) ?: "")) {
-                doctorEntries.add(doctorNames[i])
-                doctorEntryIds.add(doctorIds.getOrNull(i) ?: "")
-            }
-        }
+        container.addView(doctorSpinner, formParams())
+
+        val doctorIdsEdit = mutableListOf<String>()
+        val doctorNamesEdit = mutableListOf<String>()
         val currentDoctorId = document.getString("doctorId") ?: ""
         val currentDoctorName = document.getString("doctorName") ?: document.getString("doctor") ?: ""
-        if (currentDoctorName.isNotBlank() && doctorEntries[0] == "বর্তমান ডাক্তার") doctorEntries[0] = currentDoctorName
-        doctorSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, doctorEntries)
-        var editedDoctorId = currentDoctorId
-        var editedDoctorName = currentDoctorName
-        val initialDoctorIndex = doctorEntryIds.indexOf(currentDoctorId).coerceAtLeast(0)
-        doctorSpinner.setSelection(initialDoctorIndex)
-        doctorSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                editedDoctorId = doctorEntryIds.getOrNull(position).orEmpty()
-                editedDoctorName = doctorEntries.getOrNull(position).orEmpty()
-            }
-        }
-        container.addView(doctorSpinner, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
 
-        val careLabel = TextView(this).apply {
-            text = "কেয়ার অফ নির্বাচন করুন"
-            textSize = 16f
-            setTextColor(darkText)
-            setPadding(0, dp(8), 0, dp(5))
-        }
-        container.addView(careLabel)
+        // Date selector
+        addFormLabel(container, "তারিখ *")
+        val dateButton = createPrimaryButton("📅 ${formatDisplayDate(document.getString("createdDate") ?: selectedSerialDate)}")
+        container.addView(dateButton, formParams())
+        var editDate = document.getString("createdDate") ?: selectedSerialDate
 
-        val careInput = AutoCompleteTextView(this).apply {
-            hint = "কেয়ার অফের নাম লিখুন / নির্বাচন করুন"
-            threshold = 0
+        dateButton.setOnClickListener {
+            val cal = Calendar.getInstance()
+            try {
+                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(editDate)?.let { cal.time = it }
+            } catch (_: Exception) {}
+            DatePickerDialog(
+                this,
+                { _, year, month, day ->
+                    val selected = Calendar.getInstance().apply { set(year, month, day) }
+                    editDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selected.time)
+                    dateButton.text = "📅 ${formatDisplayDate(editDate)}"
+                },
+                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+            ).setTitle("তারিখ নির্বাচন করুন").show()
+        }
+
+        // Care Of selector with typing + arrow + plus
+        addFormLabel(container, "কেয়ার অফ *")
+        val careRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val careSpinner = AutoCompleteTextView(this).apply {
+            hint = "Care Of নির্বাচন করুন"
             textSize = 17f
             setSingleLine(true)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            threshold = 0
             background = roundedCardDrawable(Color.WHITE, dp(12))
+            setPadding(dp(14), 0, dp(10), 0)
         }
-        val editCareOptions = careOfOptions.toList()
-        val careAdapter = object : ArrayAdapter<CareOfOption>(
-            this,
-            android.R.layout.simple_list_item_1,
-            editCareOptions.toMutableList()
-        ) {
-            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
-                val view = super.getView(position, convertView, parent) as TextView
-                val option = getItem(position)
-                view.text = if (option?.address.isNullOrBlank()) option?.name ?: "" else "${option?.name}\n${option?.address}"
-                view.setSingleLine(false)
-                view.maxLines = 3
-                view.setPadding(dp(14), dp(10), dp(14), dp(10))
-                view.textSize = 16f
-                return view
-            }
-        }
-        careInput.setAdapter(careAdapter)
-        val currentCareId = document.getString("careOfId") ?: ""
-        val currentCareName = document.getString("careOfName") ?: document.getString("careOf") ?: ""
-        val currentCareAddress = document.getString("careOfAddress") ?: ""
-        var editedCareId = currentCareId
-        var editedCareName = currentCareName
-        var editedCareAddress = currentCareAddress
-        val currentCare = editCareOptions.firstOrNull { it.id == currentCareId }
-        careInput.setText((currentCare ?: CareOfOption(currentCareId, currentCareName, currentCareAddress)).toString(), false)
-        careInput.setOnClickListener { careInput.showDropDown() }
-        careInput.setOnItemClickListener { parent, _, position, _ ->
-            val selected = parent.getItemAtPosition(position) as? CareOfOption ?: return@setOnItemClickListener
-            editedCareId = selected.id
-            editedCareName = selected.name
-            editedCareAddress = selected.address
-            careInput.setText(selected.toString(), false)
-            careInput.error = null
-        }
-        container.addView(careInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
-
-        val dateLabel = TextView(this).apply {
-            text = "তারিখ নির্বাচন করুন"
-            textSize = 16f
-            setTextColor(darkText)
-            setPadding(0, dp(8), 0, dp(5))
-        }
-        container.addView(dateLabel)
-        var editedDate = document.getString("createdDate") ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val dateButton = Button(this).apply {
-            text = formatDisplayDate(editedDate)
+        val editCareArrow = Button(this).apply {
+            text = "▼"
+            textSize = 18f
             setAllCaps(false)
-            textSize = 17f
-            setOnClickListener {
-                val parts = editedDate.split("-")
-                val y = parts.getOrNull(0)?.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
-                val m = (parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1
-                val d = parts.getOrNull(2)?.toIntOrNull() ?: 1
-                DatePickerDialog(this@MainActivity, { _, year, month, day ->
-                    editedDate = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, day)
-                    text = formatDisplayDate(editedDate)
-                }, y, m, d).show()
-            }
+            setTextColor(primaryColor)
+            background = roundedCardDrawable(Color.WHITE, dp(12))
+            setPadding(0, 0, 0, 0)
         }
-        container.addView(dateButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60)))
+        val editCarePlus = Button(this).apply {
+            text = "＋"
+            textSize = 28f
+            setAllCaps(false)
+            setTextColor(primaryColor)
+            background = roundedCardDrawable(Color.WHITE, dp(12))
+            setPadding(0, 0, 0, 0)
+        }
+        careRow.addView(careSpinner, LinearLayout.LayoutParams(0, dp(58), 1f).apply { setMargins(0,0,dp(6),dp(10)) })
+        careRow.addView(editCareArrow, LinearLayout.LayoutParams(dp(54), dp(58)).apply { setMargins(0,0,dp(6),dp(10)) })
+        careRow.addView(editCarePlus, LinearLayout.LayoutParams(dp(62), dp(58)).apply { setMargins(0,0,0,dp(10)) })
+        container.addView(careRow)
+
+        var editCareId = document.getString("careOfId") ?: ""
+        var editCareName = document.getString("careOfName") ?: document.getString("careOf") ?: ""
+        var editCareAddress = document.getString("careOfAddress") ?: ""
+        careSpinner.setText(editCareName, false)
+
+        fun loadEditCareOf() {
+            db.collection("careOf").whereEqualTo("active", true).get()
+                .addOnSuccessListener { result ->
+                    val options = result.documents.map { d ->
+                        CareOfOption(d.id, d.getString("name") ?: "", d.getString("address") ?: "")
+                    }.filter { it.name.isNotBlank() }.sortedBy { it.name.lowercase(Locale.getDefault()) }
+                    careSpinner.setAdapter(object : ArrayAdapter<CareOfOption>(this, android.R.layout.simple_dropdown_item_1line, options) {
+                        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                            val v = super.getView(position, convertView, parent) as TextView
+                            v.text = options[position].name + if (options[position].address.isBlank()) "" else " — ${options[position].address}"
+                            v.setPadding(dp(14), dp(12), dp(14), dp(12))
+                            return v
+                        }
+                    })
+                    careSpinner.setOnItemClickListener { parent, _, position, _ ->
+                        val selected = parent.getItemAtPosition(position) as? CareOfOption ?: return@setOnItemClickListener
+                        editCareId = selected.id
+                        editCareName = selected.name
+                        editCareAddress = selected.address
+                        careSpinner.setText(selected.name, false)
+                    }
+                }
+        }
+        editCareArrow.setOnClickListener { careSpinner.requestFocus(); careSpinner.showDropDown() }
+        editCarePlus.setOnClickListener { showQuickAddCareOfDialog { loadEditCareOf() } }
+        careSpinner.setOnItemClickListener { parent, _, position, _ ->
+            val selected = parent.getItemAtPosition(position) as? CareOfOption ?: return@setOnItemClickListener
+            editCareId = selected.id; editCareName = selected.name; editCareAddress = selected.address
+        }
+        careSpinner.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (s?.toString()?.trim() != editCareName) {
+                    editCareId = ""
+                }
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        loadEditCareOf()
 
         val descriptionInput = createFormInput("Description")
         descriptionInput.setSingleLine(false)
-        descriptionInput.minLines = 4
+        descriptionInput.minLines = 3
         descriptionInput.gravity = Gravity.TOP
         descriptionInput.setText(document.getString("description") ?: "")
-        container.addView(descriptionInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(110)))
+        container.addView(descriptionInput, LinearLayout.LayoutParams(-1, dp(100)).apply { setMargins(0,0,0,dp(6)) })
 
         val vipCheck = CheckBox(this).apply {
             text = "⭐ VIP Patient"
             textSize = 17f
             isChecked = document.getBoolean("patientVip") ?: false
         }
-        container.addView(vipCheck, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(55)))
+        container.addView(vipCheck, LinearLayout.LayoutParams(-1, dp(55)))
+
+        db.collection("doctors").whereEqualTo("active", true).get()
+            .addOnSuccessListener { result ->
+                doctorIdsEdit.clear(); doctorNamesEdit.clear()
+                result.documents.sortedBy { it.getString("name") ?: "" }.forEach { d ->
+                    doctorIdsEdit.add(d.id)
+                    doctorNamesEdit.add(d.getString("name") ?: "")
+                }
+                doctorSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, doctorNamesEdit).apply {
+                    setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                }
+                val idx = doctorIdsEdit.indexOf(currentDoctorId).takeIf { it >= 0 } ?: doctorNamesEdit.indexOf(currentDoctorName)
+                if (idx >= 0) doctorSpinner.setSelection(idx)
+            }
 
         AlertDialog.Builder(this)
-            .setTitle("সম্পূর্ণ Serial Edit")
+            .setTitle("Edit Serial — সম্পূর্ণ তথ্য")
             .setView(container)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ ->
                 val newPatient = patientInput.text.toString().trim()
-                if (newPatient.isEmpty()) {
-                    Toast.makeText(this, "Patient Name দিন", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                val newDescription = descriptionInput.text.toString().trim()
+                val doctorPos = doctorSpinner.selectedItemPosition
+                val newDoctorId = doctorIdsEdit.getOrNull(doctorPos) ?: currentDoctorId
+                val newDoctorName = doctorNamesEdit.getOrNull(doctorPos) ?: currentDoctorName
+
+                if (newPatient.isBlank()) {
+                    Toast.makeText(this, "Patient Name দিন", Toast.LENGTH_SHORT).show(); return@setPositiveButton
                 }
-                if (editedDoctorId.isBlank() || editedDoctorName.isBlank()) {
-                    Toast.makeText(this, "Doctor নির্বাচন করুন", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                if (newDoctorId.isBlank() || newDoctorName.isBlank()) {
+                    Toast.makeText(this, "Doctor নির্বাচন করুন", Toast.LENGTH_SHORT).show(); return@setPositiveButton
                 }
-                if (editedCareId.isBlank() || editedCareName.isBlank()) {
-                    Toast.makeText(this, "Care Of নির্বাচন করুন", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                if (editCareId.isBlank() || editCareName.isBlank()) {
+                    Toast.makeText(this, "Care Of নির্বাচন করা বাধ্যতামূলক", Toast.LENGTH_LONG).show(); return@setPositiveButton
                 }
-                val updates = mapOf<String, Any>(
+
+                val updateData = mapOf<String, Any>(
                     "patient" to newPatient,
-                    "doctorId" to editedDoctorId,
-                    "doctorName" to editedDoctorName,
-                    "careOfId" to editedCareId,
-                    "careOfName" to editedCareName,
-                    "careOfAddress" to editedCareAddress,
-                    "createdDate" to editedDate,
-                    "description" to descriptionInput.text.toString().trim(),
-                    "patientVip" to vipCheck.isChecked,
-                    "editedByUid" to (auth.currentUser?.uid ?: ""),
-                    "editedByName" to currentUserDisplayName,
-                    "editedAt" to FieldValue.serverTimestamp()
+                    "doctorId" to newDoctorId,
+                    "doctorName" to newDoctorName,
+                    "careOfId" to editCareId,
+                    "careOfName" to editCareName,
+                    "careOfAddress" to editCareAddress,
+                    "createdDate" to editDate,
+                    "description" to newDescription,
+                    "patientVip" to vipCheck.isChecked
                 )
-                db.collection("serials").document(document.id).update(updates)
-                    .addOnSuccessListener { Toast.makeText(this, "Serial-এর সম্পূর্ণ তথ্য আপডেট হয়েছে", Toast.LENGTH_LONG).show() }
-                    .addOnFailureListener { error -> Toast.makeText(this, "Update ব্যর্থ: ${error.message}", Toast.LENGTH_LONG).show() }
+                db.collection("serials").document(document.id).update(updateData)
+                    .addOnSuccessListener {
+                        Toast.makeText(this, "Serial-এর সম্পূর্ণ তথ্য আপডেট হয়েছে", Toast.LENGTH_SHORT).show()
+                    }
+                    .addOnFailureListener { error ->
+                        Toast.makeText(this, "Update ব্যর্থ: ${error.message}", Toast.LENGTH_LONG).show()
+                    }
             }
             .show()
     }
