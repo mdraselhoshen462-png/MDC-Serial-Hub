@@ -673,7 +673,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 currentRole =
-                    role.lowercase()
+                    role.trim().lowercase(Locale.ROOT)
 
                 currentUserDisplayName =
                     document.getString("name")
@@ -5872,7 +5872,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Only Admin/Operator may change serial status. Normal Users cannot use this button.
-        if (currentRole == "admin" || currentRole == "operator") {
+        val normalizedRole = currentRole.trim().lowercase(Locale.ROOT)
+        if (normalizedRole == "admin" || normalizedRole == "operator") {
             statusButton.setOnClickListener { showStatusDialog(document.id, status) }
             buttonRow.addView(statusButton)
         }
@@ -6271,12 +6272,13 @@ card.addView(buttonRow)
         currentStatus: String
     ) {
 
-        if (currentRole != "admin" && currentRole != "operator") {
+        val normalizedRole = currentRole.trim().lowercase(Locale.ROOT)
+        if (normalizedRole != "admin" && normalizedRole != "operator") {
             Toast.makeText(this, "শুধুমাত্র Operator/Admin Status পরিবর্তন করতে পারবেন", Toast.LENGTH_LONG).show()
             return
         }
 
-        val statuses = if (currentRole == "admin") {
+        val statuses = if (normalizedRole == "admin") {
             arrayOf("Waiting", "Present", "Completed", "Cancelled")
         } else {
             arrayOf("Waiting", "Present", "Completed")
@@ -6312,7 +6314,7 @@ card.addView(buttonRow)
                 if (selected.equals("Completed", true)) {
                     updateData["completedByUid"] = currentUser.uid
                     updateData["completedByName"] = currentUserDisplayName
-                    updateData["completedByRole"] = currentRole
+                    updateData["completedByRole"] = normalizedRole
                     updateData["completedAt"] = FieldValue.serverTimestamp()
                 }
 
