@@ -5716,6 +5716,19 @@ class MainActivity : AppCompatActivity() {
 
         card.addView(title)
 
+        // VIP label is shown only for serials that are actually marked VIP.
+        if (isVip) {
+            card.addView(
+                TextView(this).apply {
+                    text = "VIP"
+                    textSize = 14f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.rgb(190, 120, 0))
+                    setPadding(dp(4), 0, 0, dp(4))
+                }
+            )
+        }
+
         card.addView(
             createInfoText(
                 "👤 Patient",
@@ -6022,7 +6035,7 @@ card.addView(buttonRow)
             try {
                 SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(editDate)?.let { cal.time = it }
             } catch (_: Exception) {}
-            DatePickerDialog(
+            val dateDialog = DatePickerDialog(
                 this,
                 { _, year, month, day ->
                     val selected = Calendar.getInstance().apply { set(year, month, day) }
@@ -6030,7 +6043,9 @@ card.addView(buttonRow)
                     dateButton.text = "📅 ${formatDisplayDate(editDate)}"
                 },
                 cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
-            ).setTitle("তারিখ নির্বাচন করুন").show()
+            )
+            dateDialog.setTitle("তারিখ নির্বাচন করুন")
+            dateDialog.show()
         }
 
         // Care Of selector with typing + arrow + plus
