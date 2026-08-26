@@ -6723,6 +6723,21 @@ card.addView(buttonRow)
         }
         content.addView(summary)
 
+        var reportMode = "doctor"
+        val reportModeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val doctorReportButton = createSmallButton("👨‍⚕️ ডাক্তার অনুযায়ী রিপোর্ট")
+        val careOfReportButton = createSmallButton("👤 কেয়ার অফ অনুযায়ী রিপোর্ট")
+        reportModeRow.addView(doctorReportButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+            setMargins(0, dp(4), dp(4), dp(8))
+        })
+        reportModeRow.addView(careOfReportButton, LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+            setMargins(dp(4), dp(4), 0, dp(8))
+        })
+        content.addView(reportModeRow)
+
         val reportContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -6764,13 +6779,21 @@ card.addView(buttonRow)
                 !(it.getString("status") ?: "Waiting").equals("Completed", true)
             }
 
-            val doctorGroups = completed
-                .groupBy {
-                    it.getString("doctorName")?.trim()
-                        ?.takeIf { name -> name.isNotEmpty() }
-                        ?: it.getString("doctor")?.trim()
+            val groupedReports = completed
+                .groupBy { document ->
+                    if (reportMode == "careOf") {
+                        document.getString("careOfName")?.trim()
                             ?.takeIf { name -> name.isNotEmpty() }
-                        ?: "Doctor not specified"
+                            ?: document.getString("careOf")?.trim()
+                                ?.takeIf { name -> name.isNotEmpty() }
+                            ?: "Care Of not specified"
+                    } else {
+                        document.getString("doctorName")?.trim()
+                            ?.takeIf { name -> name.isNotEmpty() }
+                            ?: document.getString("doctor")?.trim()
+                                ?.takeIf { name -> name.isNotEmpty() }
+                            ?: "Doctor not specified"
+                    }
                 }
                 .toSortedMap(String.CASE_INSENSITIVE_ORDER)
 
@@ -6778,33 +6801,37 @@ card.addView(buttonRow)
                 append("আজকের মোট সিরিয়াল = ${selectedDateDocs.size} টি\n")
                 append("সম্পন্ন সিরিয়াল = ${completed.size} টি\n")
                 append("অসম্পন্ন সিরিয়াল = ${incomplete.size} টি\n")
-                append("ডাক্তারের রিপোর্ট = শুধু সম্পন্ন সিরিয়াল")
+                append(if (reportMode == "careOf") "কেয়ার অফ রিপোর্ট = শুধু সম্পন্ন সিরিয়াল" else "ডাক্তারের রিপোর্ট = শুধু সম্পন্ন সিরিয়াল")
             }
 
             reportContent.removeAllViews()
 
+            doctorReportButton.isEnabled = reportMode != "doctor"
+            careOfReportButton.isEnabled = reportMode != "careOf"
+
             if (selectedDateDocs.isEmpty()) {
                 reportContent.addView(createEmptyText("এই তারিখে কোনো Serial পাওয়া যায়নি"))
             } else if (completed.isEmpty()) {
-                reportContent.addView(createEmptyText("এই তারিখে কোনো সম্পন্ন Serial নেই। Doctor-wise report দেখানোর মতো কোনো Completed Serial নেই।"))
+                val label = if (reportMode == "careOf") "Care Of-wise" else "Doctor-wise"
+                reportContent.addView(createEmptyText("এই তারিখে কোনো সম্পন্ন Serial নেই। $label report দেখানোর মতো কোনো Completed Serial নেই।"))
             } else {
                 reportContent.addView(TextView(this).apply {
-                    text = "👨‍⚕️ Doctor-wise Completed Serial"
+                    text = if (reportMode == "careOf") "👤 Care Of-wise Completed Serial" else "👨‍⚕️ Doctor-wise Completed Serial"
                     textSize = 20f
                     typeface = Typeface.DEFAULT_BOLD
                     setTextColor(darkText)
                     setPadding(0, dp(8), 0, dp(8))
                 })
 
-                doctorGroups.forEach { (doctorName, documents) ->
-                    val doctorTitle = TextView(this).apply {
-                        text = "$doctorName = ${documents.size} টি"
+                groupedReports.forEach { (groupName, documents) ->
+                    val groupTitle = TextView(this).apply {
+                        text = "$groupName = ${documents.size} টি"
                         textSize = 18f
                         typeface = Typeface.DEFAULT_BOLD
                         setTextColor(primaryColor)
                         setPadding(dp(6), dp(12), dp(6), dp(8))
                     }
-                    reportContent.addView(doctorTitle)
+                    reportContent.addView(groupTitle)
 
                     val table = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
@@ -6867,7 +6894,7 @@ card.addView(buttonRow)
             }
 
             pdfButton.isEnabled = selectedDateDocs.isNotEmpty()
-            pdfButton.setOnClickListener { saveReportAsPdf(selectedSerialDate, selectedDateDocs) }
+            pdfButton.setOnClickListener { saveReportAsPdf(selectedSerialDate, selectedDateDocs, reportMode) }
 
             val monthPrefix = selectedSerialDate.substring(0, 7)
             val monthDocuments = reportDocuments.filter {
@@ -6892,6 +6919,15 @@ card.addView(buttonRow)
             ).format(calendar.time)
             dateButton.text = "📅 ${formatDisplayDate(selectedSerialDate)}"
             dateInfo.text = "📅 তারিখ: ${formatDisplayDate(selectedSerialDate)}"
+            renderReport()
+        }
+
+        doctorReportButton.setOnClickListener {
+            reportMode = "doctor"
+            renderReport()
+        }
+        careOfReportButton.setOnClickListener {
+            reportMode = "careOf"
             renderReport()
         }
 
@@ -7009,7 +7045,8 @@ card.addView(buttonRow)
 
     private fun saveReportAsPdf(
         date: String,
-        documents: List<DocumentSnapshot>
+        documents: List<DocumentSnapshot>,
+        reportMode: String = "doctor"
     ) {
         if (documents.isEmpty()) {
             Toast.makeText(
@@ -7024,13 +7061,21 @@ card.addView(buttonRow)
             (it.getString("status") ?: "Waiting").equals("Completed", true)
         }
 
-        val doctorGroups = completed
-            .groupBy {
-                it.getString("doctorName")?.trim()
-                    ?.takeIf { name -> name.isNotEmpty() }
-                    ?: it.getString("doctor")?.trim()
+        val groupedReports = completed
+            .groupBy { document ->
+                if (reportMode == "careOf") {
+                    document.getString("careOfName")?.trim()
                         ?.takeIf { name -> name.isNotEmpty() }
-                    ?: "Doctor not specified"
+                        ?: document.getString("careOf")?.trim()
+                            ?.takeIf { name -> name.isNotEmpty() }
+                        ?: "Care Of not specified"
+                } else {
+                    document.getString("doctorName")?.trim()
+                        ?.takeIf { name -> name.isNotEmpty() }
+                        ?: document.getString("doctor")?.trim()
+                            ?.takeIf { name -> name.isNotEmpty() }
+                        ?: "Doctor not specified"
+                }
             }
             .toSortedMap(String.CASE_INSENSITIVE_ORDER)
 
@@ -7106,6 +7151,8 @@ card.addView(buttonRow)
         y += 24f
         text("Date: ${formatDisplayDate(date)}", margin, headingPaint)
         y += 20f
+        text(if (reportMode == "careOf") "Report Type: Care Of-wise Completed Serial" else "Report Type: Doctor-wise Completed Serial", margin, textPaint)
+        y += 18f
         text("Total Serial: ${documents.size}", margin, textPaint)
         y += 15f
         text("Completed Serial: ${completed.size}", margin, textPaint)
@@ -7117,9 +7164,10 @@ card.addView(buttonRow)
             text("No completed serials found for this date.", margin, headingPaint)
             y += 20f
         } else {
-            doctorGroups.forEach { (doctorName, doctorDocs) ->
+            groupedReports.forEach { (groupName, groupDocs) ->
                 ensureSpace(40f)
-                text("Doctor: $doctorName (${doctorDocs.size} completed)", margin, headingPaint)
+                val groupLabel = if (reportMode == "careOf") "Care Of" else "Doctor"
+                text("$groupLabel: $groupName (${groupDocs.size} completed)", margin, headingPaint)
                 y += 18f
 
                 val colX = floatArrayOf(
@@ -7137,7 +7185,7 @@ card.addView(buttonRow)
                 canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
                 y += 12f
 
-                doctorDocs.sortedBy { it.getLong("number") ?: 0L }.forEach { document ->
+                groupDocs.sortedBy { it.getLong("number") ?: 0L }.forEach { document ->
                     ensureSpace(34f)
                     val number = document.getLong("number")?.toString()
                         ?: document.getString("number") ?: "-"
