@@ -3,6 +3,10 @@ package com.moondiagnosticcenter.app
 import android.app.DatePickerDialog
 import android.content.DialogInterface
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -125,6 +129,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_GALLERY = 501
         private const val REQUEST_CAMERA = 502
         private const val REQUEST_REPORT_PDF = 503
+        private const val REQUEST_RECORD_AUDIO = 504
 
         private const val MAX_IMAGE_WIDTH = 900
         private const val MAX_IMAGE_HEIGHT = 900
@@ -159,6 +164,9 @@ class MainActivity : AppCompatActivity() {
     private var selectedAttachmentBase64: String? = null
     private var selectedAttachmentName: String = ""
     private var selectedAttachmentMimeType: String = ""
+    private var selectedVoiceBase64: String? = null
+    private var selectedVoiceName: String = ""
+    private var selectedVoiceMimeType: String = "audio/3gpp"
     private var pendingReportPdfFile: java.io.File? = null
 
     private var addSerialPatientInput: EditText? = null
@@ -1311,9 +1319,21 @@ class MainActivity : AppCompatActivity() {
                         text = if (sender.isBlank()) message else "$message\n— $sender"
                         textSize = 15f; setTextColor(Color.WHITE); setPadding(0, dp(7), dp(8), dp(7))
                     }
+                    row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+                    if (doc.getBoolean("hasVoice") == true) {
+                        val play = TextView(this).apply {
+                            text = "▶ 🎙"
+                            textSize = 18f
+                            setTextColor(Color.WHITE)
+                            gravity = Gravity.CENTER
+                            setPadding(dp(8), 0, dp(8), 0)
+                            setOnClickListener { playVoiceFromDocument(doc) }
+                        }
+                        row.addView(play, LinearLayout.LayoutParams(dp(70), dp(52)))
+                    }
                     val close = TextView(this).apply { this.text = "✕"; textSize = 22f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(4), 0) }
                     close.setOnClickListener { prefs.edit().putBoolean("hidden_${doc.id}", true).apply(); loadTodayDashboardMessages(container) }
-                    row.addView(text, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(close, LinearLayout.LayoutParams(dp(45), -2))
+                    row.addView(close, LinearLayout.LayoutParams(dp(45), -2))
                     container.addView(row)
                 }
             }
@@ -1381,11 +1401,16 @@ class MainActivity : AppCompatActivity() {
                             setTextColor(if (date == today) Color.rgb(198, 40, 40) else darkText)
                         })
                         card.addView(TextView(this).apply {
-                            text = message
+                            text = message.ifBlank { "🎙 Voice Message" }
                             textSize = 16f
                             setTextColor(darkText)
                             setPadding(0, dp(7), 0, 0)
                         })
+                        if (doc.getBoolean("hasVoice") == true) {
+                            card.addView(createSmallButton("▶  Voice Message শুনুন").apply {
+                                setOnClickListener { playVoiceFromDocument(doc) }
+                            }, LinearLayout.LayoutParams(-1, dp(48)).apply { setMargins(0, dp(7), 0, 0) })
+                        }
                         if (sender.isNotBlank()) {
                             card.addView(TextView(this).apply {
                                 text = "দিয়েছেন: $sender"
@@ -1441,6 +1466,28 @@ class MainActivity : AppCompatActivity() {
         box.addView(TextView(this).apply { text = "Message"; textSize = 14f; setTextColor(lightText); setPadding(0, dp(10), 0, dp(4)) })
         box.addView(messageInput, LinearLayout.LayoutParams(-1, dp(130)).apply { setMargins(0, 0, 0, dp(6)) })
 
+        var messageVoiceBase64: String? = null
+        var messageVoiceName = ""
+        var messageVoiceMimeType = "audio/3gpp"
+        val messageVoiceStatus = TextView(this).apply {
+            text = "কোনো Voice Message রেকর্ড করা হয়নি"
+            textSize = 14f
+            setTextColor(lightText)
+            setPadding(0, dp(4), 0, dp(8))
+        }
+        val recordMessageVoiceButton = createPrimaryButton("🎙 Voice Message রেকর্ড করুন")
+        recordMessageVoiceButton.setOnClickListener {
+            showVoiceRecorderDialog { base64, name, mime ->
+                messageVoiceBase64 = base64
+                messageVoiceName = name
+                messageVoiceMimeType = mime
+                messageVoiceStatus.text = "🎙 Voice Message সংযুক্ত হয়েছে"
+                recordMessageVoiceButton.text = "🎙 Voice Message আবার রেকর্ড করুন"
+            }
+        }
+        box.addView(recordMessageVoiceButton, LinearLayout.LayoutParams(-1, dp(54)).apply { setMargins(0, 0, 0, dp(2)) })
+        box.addView(messageVoiceStatus)
+
         AlertDialog.Builder(this)
             .setTitle("নতুন Message")
             .setView(box)
@@ -1452,8 +1499,8 @@ class MainActivity : AppCompatActivity() {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val date = dateInput.text.toString().trim()
                         val message = messageInput.text.toString().trim()
-                        if (date.isEmpty() || message.isEmpty()) {
-                            Toast.makeText(this, "তারিখ ও Message দিন", Toast.LENGTH_SHORT).show()
+                        if (date.isEmpty() || (message.isEmpty() && messageVoiceBase64.isNullOrBlank())) {
+                            Toast.makeText(this, "তারিখ এবং Text অথবা Voice Message দিন", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
                         val data = hashMapOf(
@@ -1465,6 +1512,14 @@ class MainActivity : AppCompatActivity() {
                             "createdAt" to FieldValue.serverTimestamp(),
                             "active" to true
                         )
+                        if (!messageVoiceBase64.isNullOrBlank()) {
+                            data["voiceBase64"] = messageVoiceBase64 ?: ""
+                            data["voiceName"] = messageVoiceName
+                            data["voiceMimeType"] = messageVoiceMimeType
+                            data["hasVoice"] = true
+                        } else {
+                            data["hasVoice"] = false
+                        }
                         db.collection("messages")
                             .add(data)
                             .addOnSuccessListener {
@@ -2170,7 +2225,29 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
+        val voiceButton = Button(this).apply {
+            text = "🎙"
+            textSize = 24f
+            setAllCaps(false)
+            background = roundedCardDrawable(Color.WHITE, dp(12))
+            setOnClickListener {
+                showVoiceRecorderDialog { base64, name, mime ->
+                    selectedVoiceBase64 = base64
+                    selectedVoiceName = name
+                    selectedVoiceMimeType = mime
+                    addSerialAttachmentText?.text = "📎 ছবি/PDF + 🎙 Voice সংযুক্ত হয়েছে"
+                }
+            }
+        }
+        attachmentRow.addView(voiceButton, LinearLayout.LayoutParams(dp(65), dp(60)).apply { setMargins(dp(5), 0, 0, dp(14)) })
+
         content.addView(attachmentRow)
+        content.addView(TextView(this).apply {
+            text = "📷 Camera   📎 ছবি/PDF   🎙 Voice"
+            textSize = 13f
+            setTextColor(lightText)
+            setPadding(dp(4), 0, 0, dp(10))
+        })
 
         // =====================================================
         // STATUS
@@ -3202,6 +3279,15 @@ class MainActivity : AppCompatActivity() {
 
                 serialData["hasAttachment"] =
                     false
+            }
+
+            if (!selectedVoiceBase64.isNullOrBlank()) {
+                serialData["voiceBase64"] = selectedVoiceBase64 ?: ""
+                serialData["voiceName"] = selectedVoiceName
+                serialData["voiceMimeType"] = selectedVoiceMimeType
+                serialData["hasVoice"] = true
+            } else {
+                serialData["hasVoice"] = false
             }
 
             transaction.set(
@@ -5778,6 +5864,12 @@ class MainActivity : AppCompatActivity() {
             card.addView(attachmentButton, LinearLayout.LayoutParams(-1, dp(50)).apply { setMargins(0, dp(6), 0, 0) })
         }
 
+        if (document.getBoolean("hasVoice") == true) {
+            card.addView(createSmallButton("▶ 🎙 Voice Message শুনুন").apply {
+                setOnClickListener { playVoiceFromDocument(document) }
+            }, LinearLayout.LayoutParams(-1, dp(50)).apply { setMargins(0, dp(6), 0, 0) })
+        }
+
         card.addView(
             createInfoText(
                 "✍ Created By",
@@ -5925,6 +6017,163 @@ card.addView(buttonRow)
             }
 
         return card
+    }
+
+    // =========================================================
+    // VOICE RECORDING / PLAYBACK (VIEW/LISTEN ONLY)
+    // =========================================================
+
+    private var pendingVoiceRecordStart = false
+
+    private fun showVoiceRecorderDialog(onRecorded: (String, String, String) -> Unit) {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingVoiceRecordStart = true
+            voiceRecordCallback = onRecorded
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
+            return
+        }
+        startVoiceRecorderDialog(onRecorded)
+    }
+
+    private var voiceRecordCallback: ((String, String, String) -> Unit)? = null
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_RECORD_AUDIO && pendingVoiceRecordStart) {
+            pendingVoiceRecordStart = false
+            val callback = voiceRecordCallback
+            voiceRecordCallback = null
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED && callback != null) {
+                startVoiceRecorderDialog(callback)
+            } else {
+                Toast.makeText(this, "Voice Message দিতে Microphone permission দিন", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun startVoiceRecorderDialog(onRecorded: (String, String, String) -> Unit) {
+        val status = TextView(this).apply {
+            text = "রেকর্ডিং শুরু করতে নিচের Start চাপুন"
+            textSize = 16f
+            setTextColor(darkText)
+            setPadding(dp(8), dp(8), dp(8), dp(16))
+        }
+        var recorder: MediaRecorder? = null
+        var outputFile: java.io.File? = null
+        var startedAt = 0L
+        var finished = false
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("🎙 Voice Message")
+            .setView(status)
+            .setNegativeButton("Cancel") { _, _ ->
+                try { recorder?.stop() } catch (_: Exception) {}
+                try { recorder?.release() } catch (_: Exception) {}
+                outputFile?.delete()
+                recorder = null
+            }
+            .setPositiveButton("Start", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            button.setOnClickListener {
+                if (recorder == null) {
+                    try {
+                        val file = java.io.File.createTempFile("mdc_voice_", ".3gp", cacheDir)
+                        outputFile = file
+                        val r = MediaRecorder()
+                        r.setAudioSource(MediaRecorder.AudioSource.MIC)
+                        r.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+                        r.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+                        r.setAudioSamplingRate(8000)
+                        r.setAudioEncodingBitRate(12200)
+                        r.setOutputFile(file.absolutePath)
+                        r.prepare()
+                        r.start()
+                        recorder = r
+                        startedAt = System.currentTimeMillis()
+                        status.text = "🔴 Recording চলছে… সর্বোচ্চ 60 সেকেন্ড"
+                        button.text = "⏹ Stop & Save"
+                    } catch (e: Exception) {
+                        try { recorder?.release() } catch (_: Exception) {}
+                        recorder = null
+                        outputFile?.delete()
+                        outputFile = null
+                        Toast.makeText(this, "Voice recording শুরু করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                } else if (!finished) {
+                    finished = true
+                    val elapsed = System.currentTimeMillis() - startedAt
+                    try { recorder?.stop() } catch (_: Exception) {}
+                    try { recorder?.release() } catch (_: Exception) {}
+                    recorder = null
+                    val file = outputFile
+                    if (file == null || !file.exists() || file.length() == 0L) {
+                        Toast.makeText(this, "Voice recording পাওয়া যায়নি", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+                    try {
+                        val bytes = file.readBytes()
+                        if (bytes.size > 500_000) {
+                            file.delete()
+                            Toast.makeText(this, "Voice ফাইলটি খুব বড় হয়েছে। 60 সেকেন্ডের মধ্যে রেকর্ড করুন।", Toast.LENGTH_LONG).show()
+                            return@setOnClickListener
+                        }
+                        val name = "voice_${System.currentTimeMillis()}.3gp"
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        onRecorded(base64, name, "audio/3gpp")
+                        file.delete()
+                        dialog.dismiss()
+                        Toast.makeText(this, "Voice Message সংরক্ষণের জন্য প্রস্তুত হয়েছে", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        file.delete()
+                        Toast.makeText(this, "Voice সংরক্ষণ করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        dialog.setOnDismissListener {
+            if (recorder != null) {
+                try { recorder?.stop() } catch (_: Exception) {}
+                try { recorder?.release() } catch (_: Exception) {}
+                recorder = null
+            }
+            outputFile?.delete()
+        }
+        dialog.show()
+    }
+
+    private fun playVoiceFromDocument(document: DocumentSnapshot) {
+        val base64 = document.getString("voiceBase64") ?: ""
+        if (base64.isBlank()) {
+            Toast.makeText(this, "Voice Message পাওয়া যায়নি", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            val file = java.io.File.createTempFile("mdc_play_", ".3gp", cacheDir)
+            file.writeBytes(bytes)
+            val player = MediaPlayer()
+            player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener {
+                it.start()
+                Toast.makeText(this, "🎙 Voice Message চলছে…", Toast.LENGTH_SHORT).show()
+            }
+            player.setOnCompletionListener {
+                it.release()
+                file.delete()
+            }
+            player.setOnErrorListener { mp, _, _ ->
+                mp.release()
+                file.delete()
+                Toast.makeText(this, "Voice Message চালানো যায়নি", Toast.LENGTH_LONG).show()
+                true
+            }
+            player.prepareAsync()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Voice Message খোলা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     // =========================================================
