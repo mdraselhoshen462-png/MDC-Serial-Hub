@@ -6841,10 +6841,10 @@ card.addView(buttonRow)
                     }
 
                     fun addRow(
-                        serial: String,
-                        patient: String,
-                        careOf: String,
-                        givenBy: String,
+                        first: String,
+                        second: String,
+                        third: String,
+                        fourth: String,
                         header: Boolean = false
                     ) {
                         val row = LinearLayout(this).apply {
@@ -6853,7 +6853,7 @@ card.addView(buttonRow)
                             if (header) setBackgroundColor(Color.rgb(235, 242, 250))
                         }
 
-                        fun cell(text: String, weight: Float): TextView = TextView(this).apply {
+                        fun cell(text: String): TextView = TextView(this).apply {
                             this.text = text
                             textSize = if (header) 13f else 14f
                             typeface = if (header) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
@@ -6861,21 +6861,29 @@ card.addView(buttonRow)
                             setPadding(dp(4), dp(2), dp(4), dp(2))
                         }
 
-                        row.addView(cell(serial, 0.65f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.65f))
-                        row.addView(cell(patient, 1.25f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.25f))
-                        row.addView(cell(careOf, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
-                        row.addView(cell(givenBy, 1.15f), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.15f))
+                        val weights = if (reportMode == "careOf") floatArrayOf(1.0f, 1.35f, 1.35f, 1.15f)
+                                      else floatArrayOf(1.25f, 1.05f, 1.25f, 1.15f)
+                        listOf(first, second, third, fourth).forEachIndexed { index, value ->
+                            row.addView(cell(value), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weights[index]))
+                        }
                         table.addView(row)
                     }
 
-                    addRow("Serial", "Patient", "Care Of", "Given By", true)
+                    // Doctor-wise: Patient, Date, Care Of, Given By (no Serial column).
+                    // Care Of-wise: Date, Patient, Doctor, Given By (no Serial column).
+                    if (reportMode == "careOf") {
+                        addRow("Date", "Patient", "Doctor", "Given By", true)
+                    } else {
+                        addRow("Patient", "Date", "Care Of", "Given By", true)
+                    }
 
                     sortSerials(documents).forEach { document ->
-                        val number = document.getLong("number")?.toString()
-                            ?: document.getString("number") ?: "-"
+                        val date = document.getString("createdDate") ?: "-"
                         val patient = document.getString("patient") ?: "-"
                         val careOf = document.getString("careOfName")
                             ?: document.getString("careOf") ?: "-"
+                        val doctor = document.getString("doctorName")
+                            ?: document.getString("doctor") ?: "-"
                         val givenBy = document.getString("createdByName")?.trim()
                             ?.takeIf { it.isNotEmpty() }
                             ?: document.getString("createdByUid")
@@ -6883,7 +6891,11 @@ card.addView(buttonRow)
                         val role = document.getString("createdByRole")?.trim()
                             ?.takeIf { it.isNotEmpty() }
                         val givenByText = if (role != null) "$givenBy ($role)" else givenBy
-                        addRow(number, patient, careOf, givenByText)
+                        if (reportMode == "careOf") {
+                            addRow(formatDisplayDate(date), patient, doctor, givenByText)
+                        } else {
+                            addRow(patient, formatDisplayDate(date), careOf, givenByText)
+                        }
                     }
 
                     reportContent.addView(table, LinearLayout.LayoutParams(
@@ -6901,7 +6913,7 @@ card.addView(buttonRow)
                 (it.getString("createdDate") ?: "").startsWith("$monthPrefix-")
             }
             monthlyPdfButton.isEnabled = monthDocuments.isNotEmpty()
-            monthlyPdfButton.setOnClickListener { saveMonthlyReportAsPdf(monthPrefix, monthDocuments) }
+            monthlyPdfButton.setOnClickListener { saveMonthlyReportAsPdf(monthPrefix, monthDocuments, reportMode) }
         }
 
         fun moveReportDate(days: Int) {
@@ -6962,10 +6974,15 @@ card.addView(buttonRow)
 
     private fun saveMonthlyReportAsPdf(
         monthPrefix: String,
-        documents: List<DocumentSnapshot>
+        documents: List<DocumentSnapshot>,
+        reportMode: String = "doctor"
     ) {
-        if (documents.isEmpty()) {
-            Toast.makeText(this, "এই মাসে কোনো Serial নেই", Toast.LENGTH_LONG).show()
+        val completed = documents.filter {
+            (it.getString("status") ?: "Waiting").equals("Completed", true)
+        }
+
+        if (completed.isEmpty()) {
+            Toast.makeText(this, "এই মাসে কোনো Completed Serial নেই", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -6973,9 +6990,17 @@ card.addView(buttonRow)
         val pageWidth = 595
         val pageHeight = 842
         val margin = 30f
-        val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 18f; typeface = Typeface.DEFAULT_BOLD }
-        val headingPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
-        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 9f }
+        val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val headingPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 9f
+        }
 
         var pageNumber = 0
         var page: PdfDocument.Page? = null
@@ -6989,47 +7014,102 @@ card.addView(buttonRow)
             y = margin
             canvas!!.drawText("Moon Diagnostic Center", margin, y + 18, titlePaint)
             y += 38f
-            canvas!!.drawText("Monthly Serial Report • $monthPrefix", margin, y, headingPaint)
+            val reportTitle = if (reportMode == "careOf") {
+                "Monthly Care Of-wise Completed Serial Report • $monthPrefix"
+            } else {
+                "Monthly Doctor-wise Completed Serial Report • $monthPrefix"
+            }
+            canvas!!.drawText(reportTitle, margin, y, headingPaint)
             y += 22f
         }
+
         fun finishPage() {
             page?.let { pdf.finishPage(it) }
             page = null
             canvas = null
         }
+
         fun line(text: String, paint: android.graphics.Paint = textPaint, gap: Float = 15f) {
-            if (y > pageHeight - 45f) { finishPage(); startPage() }
+            if (y > pageHeight - 45f) {
+                finishPage()
+                startPage()
+            }
             canvas!!.drawText(text.take(105), margin, y, paint)
             y += gap
         }
 
+        fun careOfName(doc: DocumentSnapshot): String =
+            doc.getString("careOfName")?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: doc.getString("careOf")?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                ?: "Care Of not specified"
+
+        fun doctorName(doc: DocumentSnapshot): String =
+            doc.getString("doctorName")?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: doc.getString("doctor")?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                ?: "Doctor not specified"
+
         startPage()
-        val sorted = documents.sortedWith(compareBy<DocumentSnapshot> { it.getString("createdDate") ?: "" }.thenBy { it.getLong("number") ?: 0L })
-        var currentDate = ""
-        for (doc in sorted) {
-            val date = doc.getString("createdDate") ?: ""
-            if (date != currentDate) {
-                if (y > pageHeight - 80f) { finishPage(); startPage() }
-                line("Date: ${formatDisplayDate(date)}", headingPaint, 19f)
-                currentDate = date
+
+        // For Care Of-wise monthly reports, group by Care Of and DO NOT use the
+        // doctor name as the report group. This keeps the report consistent with
+        // the single-day Care Of-wise report.
+        val grouped = completed.groupBy { doc ->
+            if (reportMode == "careOf") careOfName(doc) else doctorName(doc)
+        }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
+
+        grouped.forEach { (groupName, groupDocs) ->
+            if (y > pageHeight - 90f) {
+                finishPage()
+                startPage()
             }
-            val number = doc.getLong("number")?.toString() ?: doc.getString("number") ?: "-"
-            val patient = doc.getString("patient") ?: "-"
-            val doctor = doc.getString("doctorName") ?: doc.getString("doctor") ?: "-"
-            val care = doc.getString("careOfName") ?: doc.getString("careOf") ?: "-"
-            val status = doc.getString("status") ?: "Waiting"
-            line("#$number  $patient  |  $doctor  |  Care Of: $care  |  $status", textPaint, 14f)
+
+            val label = if (reportMode == "careOf") "Care Of" else "Doctor"
+            line("$label: $groupName (${groupDocs.size} completed)", headingPaint, 19f)
+
+            val sorted = groupDocs.sortedWith(
+                compareBy<DocumentSnapshot> { it.getString("createdDate") ?: "" }
+                    .thenBy { it.getLong("number") ?: 0L }
+            )
+
+            for (doc in sorted) {
+                val date = doc.getString("createdDate") ?: ""
+                val patient = doc.getString("patient") ?: "-"
+                val care = careOfName(doc)
+                val doctor = doctorName(doc)
+                val givenBy = doc.getString("createdByName")?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: doc.getString("createdByUid") ?: "-"
+                val role = doc.getString("createdByRole")?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                val giver = if (role != null) "$givenBy ($role)" else givenBy
+
+                // Doctor-wise: Patient, Date, Care Of, Given By.
+                // Care Of-wise: Date, Patient, Doctor, Given By.
+                val detail = if (reportMode == "careOf") {
+                    "${formatDisplayDate(date)}  |  Patient: $patient  |  Doctor: $doctor  |  Given By: $giver"
+                } else {
+                    "Patient: $patient  |  ${formatDisplayDate(date)}  |  Care Of: $care  |  Given By: $giver"
+                }
+                line(detail, textPaint, 14f)
+            }
+            y += 5f
         }
+
         finishPage()
 
         try {
-            val file = java.io.File(cacheDir, "MDC_Monthly_Report_${monthPrefix}.pdf")
+            val suffix = if (reportMode == "careOf") "CareOfWise" else "DoctorWise"
+            val file = java.io.File(cacheDir, "MDC_Monthly_${suffix}_${monthPrefix}.pdf")
             FileOutputStream(file).use { pdf.writeTo(it) }
             pdf.close()
             pendingReportPdfFile = file
             val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 type = "application/pdf"
-                putExtra(Intent.EXTRA_TITLE, "MDC_Monthly_Report_${monthPrefix}.pdf")
+                putExtra(Intent.EXTRA_TITLE, "MDC_Monthly_${suffix}_${monthPrefix}.pdf")
                 addCategory(Intent.CATEGORY_OPENABLE)
             }
             startActivityForResult(intent, REQUEST_REPORT_PDF)
@@ -7170,13 +7250,26 @@ card.addView(buttonRow)
                 text("$groupLabel: $groupName (${groupDocs.size} completed)", margin, headingPaint)
                 y += 18f
 
-                val colX = floatArrayOf(
-                    margin,
-                    margin + usableWidth * 0.12f,
-                    margin + usableWidth * 0.38f,
-                    margin + usableWidth * 0.70f
-                )
-                val headers = listOf("Serial", "Patient", "Care Of / Address", "Given By")
+                val colX = if (reportMode == "careOf") {
+                    floatArrayOf(
+                        margin,
+                        margin + usableWidth * 0.20f,
+                        margin + usableWidth * 0.52f,
+                        margin + usableWidth * 0.76f
+                    )
+                } else {
+                    floatArrayOf(
+                        margin,
+                        margin + usableWidth * 0.27f,
+                        margin + usableWidth * 0.46f,
+                        margin + usableWidth * 0.73f
+                    )
+                }
+                val headers = if (reportMode == "careOf") {
+                    listOf("Date", "Patient", "Doctor", "Given By")
+                } else {
+                    listOf("Patient", "Date", "Care Of", "Given By")
+                }
                 ensureSpace(20f)
                 headers.forEachIndexed { index, header ->
                     text(header, colX[index], smallPaint)
@@ -7185,15 +7278,14 @@ card.addView(buttonRow)
                 canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
                 y += 12f
 
-                groupDocs.sortedBy { it.getLong("number") ?: 0L }.forEach { document ->
-                    ensureSpace(34f)
-                    val number = document.getLong("number")?.toString()
-                        ?: document.getString("number") ?: "-"
+                groupDocs.sortedBy { it.getString("createdDate") ?: "" }.forEach { document ->
+                    ensureSpace(38f)
+                    val date = document.getString("createdDate") ?: "-"
                     val patient = document.getString("patient") ?: "-"
                     val careOfName = document.getString("careOfName")
                         ?: document.getString("careOf") ?: "-"
-                    val careOfAddress = document.getString("careOfAddress") ?: ""
-                    val careOf = if (careOfAddress.isBlank()) careOfName else "$careOfName / $careOfAddress"
+                    val doctor = document.getString("doctorName")
+                        ?: document.getString("doctor") ?: "-"
                     val givenBy = document.getString("createdByName")?.trim()
                         ?.takeIf { it.isNotEmpty() }
                         ?: document.getString("createdByUid") ?: "-"
@@ -7201,13 +7293,25 @@ card.addView(buttonRow)
                         ?.takeIf { it.isNotEmpty() }
                     val giver = if (role != null) "$givenBy ($role)" else givenBy
 
-                    text(number, colX[0], smallPaint)
-                    wrapped(patient, colX[1], usableWidth * 0.24f, smallPaint)
-                    val patientLines = maxOf(1, (smallPaint.measureText(patient) / (usableWidth * 0.24f)).toInt() + 1)
-                    val rowHeight = 13f * patientLines
-                    text(careOf, colX[2], smallPaint)
-                    wrapped(giver, colX[3], usableWidth * 0.30f, smallPaint)
-                    y += maxOf(13f, rowHeight)
+                    val values = if (reportMode == "careOf") {
+                        listOf(formatDisplayDate(date), patient, doctor, giver)
+                    } else {
+                        listOf(patient, formatDisplayDate(date), careOfName, giver)
+                    }
+                    val widths = if (reportMode == "careOf") {
+                        floatArrayOf(usableWidth * 0.20f, usableWidth * 0.32f, usableWidth * 0.24f, usableWidth * 0.24f)
+                    } else {
+                        floatArrayOf(usableWidth * 0.27f, usableWidth * 0.19f, usableWidth * 0.27f, usableWidth * 0.27f)
+                    }
+                    var maxLines = 1
+                    values.forEachIndexed { index, value ->
+                        val beforeY = y
+                        wrapped(value, colX[index], widths[index], smallPaint)
+                        val used = ((y - beforeY) / 13f).toInt().coerceAtLeast(1)
+                        maxLines = maxOf(maxLines, used)
+                        y = beforeY
+                    }
+                    y += 13f * maxLines
                     canvas?.drawLine(margin, y, pageWidth - margin, y, linePaint)
                     y += 8f
                 }
