@@ -21,3 +21,6 @@
     </application>
 
 </manifest>
+
+      <uses-permission 
+         android:name="android.permission.RECORD_AUDIO" />
