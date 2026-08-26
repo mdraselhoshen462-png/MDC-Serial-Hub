@@ -10,10 +10,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true">
-
-  <uses-permission
-       android:name="android.permission.RECORD_AUDIO" />
-            
+      
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -24,5 +21,3 @@
     </application>
 
 </manifest>
-
-    
