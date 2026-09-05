@@ -7026,7 +7026,7 @@ card.addView(buttonRow)
     /**
      * Draws a real grid/table: outer border + every row/column border,
      * wrapped cell text, and repeated header rows after page breaks.
-     * Landscape A4 is used so the PDF looks like an Excel-style sheet.
+     * Portrait A4 is used so all report pages remain portrait-oriented.
      */
     private fun createReportPdf(
         title: String,
@@ -7035,8 +7035,8 @@ card.addView(buttonRow)
         reportMode: String
     ): PdfDocument {
         val pdf = PdfDocument()
-        val pageWidth = 842
-        val pageHeight = 595
+        val pageWidth = 595
+        val pageHeight = 842
         val margin = 28f
         val tableWidth = pageWidth - margin * 2
 
